@@ -233,6 +233,17 @@ struct SynthMiniFpgaPass : public Pass {
 				Pass::call(design, "abc -dff");
 		}
 
+		if (check_label(active, run_from, run_to, "map_ffs"))
+		{
+			Pass::call(design, "dffsr2dff");
+			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
+			Pass::call(design, "techmap -map +/minifpga/cells_map.v");
+			Pass::call(design, "opt_const -mux_undef");
+			Pass::call(design, "simplemap");
+			Pass::call(design, "minifpga_ffinit");
+			Pass::call(design, "minifpga_ffssr");
+			Pass::call(design, "minifpga_opt -full");
+		}
 
 
 		if (check_label(active, run_from, run_to, "map_luts"))

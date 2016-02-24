@@ -1,8 +1,8 @@
 
 OBJS += techlibs/minifpga/synth_minifpga.o
-#OBJS += techlibs/minifpga/synth_minifpga_ffssr.o
-#OBJS += techlibs/minifpga/synth_minifpga_ffinit.o
-#OBJS += techlibs/minifpga/synth_minifpga_opt.o
+OBJS += techlibs/minifpga/minifpga_ffssr.o
+OBJS += techlibs/minifpga/minifpga_ffinit.o
+OBJS += techlibs/minifpga/minifpga_opt.o
 
 
 
