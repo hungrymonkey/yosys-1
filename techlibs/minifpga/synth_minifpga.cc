@@ -35,14 +35,14 @@ bool check_label(bool &active, std::string run_from, std::string run_to, std::st
 }
 
 struct SynthMiniFpgaPass : public Pass {
-	SynthMiniFpgaPass() : Pass("synth_minifpga", "synthesis for iCE40 FPGAs") { }
+	SynthMiniFpgaPass() : Pass("synth_minifpga", "synthesis for MINIFPGA FPGAs") { }
 	virtual void help()
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
 		log("    synth_minifpga [options]\n");
 		log("\n");
-		log("This command runs synthesis for iCE40 FPGAs. This work is experimental.\n");
+		log("This command runs synthesis for MINIFPGA FPGAs. This work is experimental.\n");
 		log("\n");
 		log("    -top <module>\n");
 		log("        use the specified module as top module (default='top')\n");
@@ -197,7 +197,7 @@ struct SynthMiniFpgaPass : public Pass {
 
 		bool active = run_from.empty();
 
-		log_header("Executing SYNTH_ICE40 pass.\n");
+		log_header("Executing SYNTH_MINIFPGA pass.\n");
 		log_push();
 
 		if (check_label(active, run_from, run_to, "begin"))
