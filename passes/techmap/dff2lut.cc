@@ -226,11 +226,24 @@ struct Dff2lutWorker
 				RTLIL::Cell *new_cell_master = module->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const("11001010"));
 				RTLIL::Cell *new_cell_slave = module->addLut(NEW_ID, sig_slave_a, new_sig_q, RTLIL::Const::Const("11001010"));
 				log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(new_sig_d), log_signal(new_sig_q));
-
+				std::cerr <<"dog"<<std::endl;
 			} else {
+				sig_master_a.append( sig_master_y ); 
+				sig_master_a.append( make_patterns_logic(it.first, false) ); 
+				sig_master_a.append( dff_cell->getPort("\\CLK") ); 
+
+				sig_slave_a.append( sig_master_y ); 
+				sig_slave_a.append( new_sig_q ); 
+				sig_slave_a.append( dff_cell->getPort("\\CLK") ); 
+				RTLIL::Cell *new_cell_master = module->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const("11001010"));
+				RTLIL::Cell *new_cell_slave = module->addLut(NEW_ID, sig_slave_a, new_sig_q, RTLIL::Const::Const("11001010"));
+				log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(new_sig_d), log_signal(new_sig_q));	
+				std::cerr <<"loopy"<<std::endl;
+				/*				
 				RTLIL::Cell *new_cell = module->addDffeGate(NEW_ID, dff_cell->getPort("\\C"), make_patterns_logic(it.first, true),
 						new_sig_d, new_sig_q, dff_cell->type == "$_DFF_P_", true);
 				log("  created %s cell %s for %s -> %s.\n", log_id(new_cell->type), log_id(new_cell), log_signal(new_sig_d), log_signal(new_sig_q));
+				*/
 			}
 		}
 
@@ -255,7 +268,7 @@ struct Dff2lutWorker
 
 	void run()
 	{
-		log("Transforming FF to FF+Enable cells in module %s:\n", log_id(module));
+		log("Transforming FF to 4LUT cells in module %s:\n", log_id(module));
 		for (auto dff_cell : dff_cells) {
 			// log("Handling candidate %s:\n", log_id(dff_cell));
 			handle_dff_cell(dff_cell);

@@ -236,7 +236,7 @@ struct SynthMiniFpgaPass : public Pass {
 
 		if (check_label(active, run_from, run_to, "map_ffs"))
 		{
-//			Pass::call(design, "dffsr2dff");
+			Pass::call(design, "dffsr2dff");
 //			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
 			Pass::call(design, "dff2lut -direct-match $_DFF_*");
 			Pass::call(design, "techmap -map +/minifpga/cells_map.v");
