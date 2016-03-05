@@ -99,8 +99,9 @@ struct SynthMiniFpgaPass : public Pass {
 		log("        minifpga_opt\n");
 		log("\n");
 		log("    map_ffs:\n");
-		log("        dffsr2dff\n");
-		log("        dff2dffe -direct-match $_DFF_*\n");
+		//log("        dffsr2dff\n");
+		//log("        dff2dffe -direct-match $_DFF_*\n");
+		log("        dff2lut -direct-match $_DFF_*\n");
 		log("        techmap -map +/minifpga/cells_map.v\n");
 		log("        opt_const -mux_undef\n");
 		log("        simplemap\n");
@@ -235,8 +236,9 @@ struct SynthMiniFpgaPass : public Pass {
 
 		if (check_label(active, run_from, run_to, "map_ffs"))
 		{
-			Pass::call(design, "dffsr2dff");
-			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
+//			Pass::call(design, "dffsr2dff");
+//			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
+			Pass::call(design, "dff2lut -direct-match $_DFF_*");
 			Pass::call(design, "techmap -map +/minifpga/cells_map.v");
 			Pass::call(design, "opt_const -mux_undef");
 			Pass::call(design, "simplemap");

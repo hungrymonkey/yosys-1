@@ -23,6 +23,7 @@ OBJS += passes/techmap/tribuf.o
 OBJS += passes/techmap/lut2mux.o
 OBJS += passes/techmap/nlutmap.o
 OBJS += passes/techmap/dffsr2dff.o
+OBJS += passes/techmap/dff2lut.o
 endif
 
 GENFILES += passes/techmap/techmap.inc
