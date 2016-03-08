@@ -63,13 +63,10 @@ struct Dff2lutWorker
 					sig_slave_a[0]= sig_master_y; 
 					sig_slave_a[1]= cell->getPort("\\Q"); 
 					sig_slave_a[2]= cell->getPort("\\C");
-					std::string lut_init = "11001010";
-					std::vector<bool> bits;
-					for( unsigned int i = lut_init.length(); i != 0 ; i-- ){
-						bits.push_back( lut_init[i-1] - '0' ? true : false );
-					}
-					RTLIL::Cell *new_cell_master = mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const(bits));
-					RTLIL::Cell *new_cell_slave = mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::Const(bits));
+
+	
+					RTLIL::Cell *new_cell_master = mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::from_string("11001010"));
+					RTLIL::Cell *new_cell_slave = mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::from_string("11001010"));
 
 					log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(cell->getPort("\\D")), log_signal(cell->getPort("\\Q")));
 					mod->remove(cell);
@@ -89,13 +86,10 @@ struct Dff2lutWorker
 					sig_slave_a[0]= sig_master_y; 
 					sig_slave_a[1]= cell->getPort("\\Q"); 
 					sig_slave_a[2]= cell->getPort("\\C"); 
-					std::string lut_init = "11001010";
-					std::vector<bool> bits;
-					for(unsigned int i = lut_init.length(); i != 0; i-- ){
-						bits.push_back( lut_init[i-1] - '0' ? true : false );
-					}
-					mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const(bits));
-					mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::Const(bits));
+
+
+					mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::from_string("11001010"));
+					mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::from_string("11001010"));
 					mod->remove(cell);
 				}
 			}
