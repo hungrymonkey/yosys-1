@@ -69,9 +69,6 @@ struct SynthMiniFpgaPass : public Pass {
 		log("    -nocarry\n");
 		log("        do not use SB_CARRY cells in output netlist\n");
 		log("\n");
-		log("    -nobram\n");
-		log("        do not use SB_RAM40_4K* cells in output netlist\n");
-		log("\n");
 		log("    -abc2\n");
 		log("        run two passes of 'abc' for slightly improved logic density\n");
 		log("\n");
@@ -99,7 +96,7 @@ struct SynthMiniFpgaPass : public Pass {
 		log("        minifpga_opt\n");
 		log("\n");
 		log("    map_ffs:\n");
-		//log("        dffsr2dff\n");
+		log("        dffsr2dff\n");
 		//log("        dff2dffe -direct-match $_DFF_*\n");
 		log("        dff2lut -direct-match $_DFF_*\n");
 		log("        techmap -map +/minifpga/cells_map.v\n");

@@ -42,238 +42,66 @@ struct Dff2lutWorker
 	typedef std::set<pattern_t> patterns_t;
 
 
-	Dff2lutWorker(RTLIL::Module *module, const dict<IdString, IdString> &direct_dict) :
-			direct_dict(direct_dict), module(module), sigmap(module), ct(module->design)
+	Dff2lutWorker(Module *mod, const dict<IdString, IdString> &direct_dict, Cell *cell):
+			direct_dict(direct_dict), module(mod), sigmap(mod), ct(module->design)
 	{
-		for (auto wire : module->wires()) {
-			if (wire->port_output)
-				for (auto bit : sigmap(wire))
-					bitusers[bit]++;
-		}
+		
 
-		for (auto cell : module->cells()) {
-			if (cell->type == "$mux" || cell->type == "$pmux" || cell->type == "$_MUX_") {
-				RTLIL::SigSpec sig_y = sigmap(cell->getPort("\\Y"));
-				for (int i = 0; i < GetSize(sig_y); i++)
-					bit2mux[sig_y[i]] = cell_int_t(cell, i);
-			}
-			if (direct_dict.empty()) {
-				if (cell->type == "$dff" || cell->type == "$_DFF_N_" || cell->type == "$_DFF_P_")
-					dff_cells.push_back(cell);
-			} else {
-				if (direct_dict.count(cell->type))
-					dff_cells.push_back(cell);
-			}
-			for (auto conn : cell->connections()) {
-				if (ct.cell_output(cell->type, conn.first))
-					continue;
-				for (auto bit : sigmap(conn.second))
-					bitusers[bit]++;
-			}
-		}
-	}
 
-	patterns_t find_muxtree_feedback_patterns(RTLIL::SigBit d, RTLIL::SigBit q, pattern_t path)
-	{
-		patterns_t ret;
+			if( direct_dict.empty() ){
+				if (cell->type == "$dff") {
+					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_master_y = mod->addWire(NEW_ID,1);
+					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 4);
+					//RTLIL::SigSpec data = mod->addWire(NEW_ID, GetSize(cell->getPort("\\D")));
+					//mod->addDff(NEW_ID, cell->getPort("\\CLK"), tmp, cell->getPort("\\Q"), cell->getParam("\\CLK_POLARITY").as_bool());
 
-		if (d == q) {
-			ret.insert(path);
-			return ret;
-		}
+					sig_master_a[0]= sig_master_y;
+					sig_master_a[1]= cell->getPort("\\D");
+					sig_master_a[2]=  cell->getPort("\\C");
 
-		if (bit2mux.count(d) == 0 || bitusers[d] > 1)
-			return ret;
+					sig_slave_a[0]= sig_master_y; 
+					sig_slave_a[1]= cell->getPort("\\Q"); 
+					sig_slave_a[2]= cell->getPort("\\C");
+					std::string lut_init = "11001010";
+					std::vector<bool> bits;
+					for( unsigned int i = lut_init.length(); i != 0 ; i-- ){
+						bits.push_back( lut_init[i-1] - '0' ? true : false );
+					}
+					RTLIL::Cell *new_cell_master = mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const(bits));
+					RTLIL::Cell *new_cell_slave = mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::Const(bits));
 
-		cell_int_t mux_cell_int = bit2mux.at(d);
-		RTLIL::SigSpec sig_a = sigmap(mux_cell_int.first->getPort("\\A"));
-		RTLIL::SigSpec sig_b = sigmap(mux_cell_int.first->getPort("\\B"));
-		RTLIL::SigSpec sig_s = sigmap(mux_cell_int.first->getPort("\\S"));
-		int width = GetSize(sig_a), index = mux_cell_int.second;
-
-		for (int i = 0; i < GetSize(sig_s); i++)
-			if (path.count(sig_s[i]) && path.at(sig_s[i]))
-			{
-				ret = find_muxtree_feedback_patterns(sig_b[i*width + index], q, path);
-
-				if (sig_b[i*width + index] == q) {
-					RTLIL::SigSpec s = mux_cell_int.first->getPort("\\B");
-					s[i*width + index] = RTLIL::Sx;
-					mux_cell_int.first->setPort("\\B", s);
+					log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(cell->getPort("\\D")), log_signal(cell->getPort("\\Q")));
+					mod->remove(cell);
 				}
+			}else{
+				if (direct_dict.count(cell->type)) {
+					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_master_y = mod->addWire(NEW_ID,1);
+					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 4);
+					//RTLIL::SigSpec data = mod->addWire(NEW_ID, GetSize(cell->getPort("\\D")));
+					//mod->addDff(NEW_ID, cell->getPort("\\CLK"), tmp, cell->getPort("\\Q"), cell->getParam("\\CLK_POLARITY").as_bool());
 
-				return ret;
+					sig_master_a[0]= sig_master_y;
+					sig_master_a[1]= cell->getPort("\\D");
+					sig_master_a[2]=  cell->getPort("\\C");
+
+					sig_slave_a[0]= sig_master_y; 
+					sig_slave_a[1]= cell->getPort("\\Q"); 
+					sig_slave_a[2]= cell->getPort("\\C"); 
+					std::string lut_init = "11001010";
+					std::vector<bool> bits;
+					for(unsigned int i = lut_init.length(); i != 0; i-- ){
+						bits.push_back( lut_init[i-1] - '0' ? true : false );
+					}
+					mod->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const(bits));
+					mod->addLut(NEW_ID, sig_slave_a, cell->getPort("\\Q"), RTLIL::Const::Const(bits));
+					mod->remove(cell);
+				}
 			}
 
-		pattern_t path_else = path;
-
-		for (int i = 0; i < GetSize(sig_s); i++)
-		{
-			if (path.count(sig_s[i]))
-				continue;
-
-			pattern_t path_this = path;
-			path_else[sig_s[i]] = false;
-			path_this[sig_s[i]] = true;
-
-			for (auto &pat : find_muxtree_feedback_patterns(sig_b[i*width + index], q, path_this))
-				ret.insert(pat);
-
-			if (sig_b[i*width + index] == q) {
-				RTLIL::SigSpec s = mux_cell_int.first->getPort("\\B");
-				s[i*width + index] = RTLIL::Sx;
-				mux_cell_int.first->setPort("\\B", s);
-			}
-		}
-
-		for (auto &pat : find_muxtree_feedback_patterns(sig_a[index], q, path_else))
-			ret.insert(pat);
-
-		if (sig_a[index] == q) {
-			RTLIL::SigSpec s = mux_cell_int.first->getPort("\\A");
-			s[index] = RTLIL::Sx;
-			mux_cell_int.first->setPort("\\A", s);
-		}
-
-		return ret;
 	}
 
-	void simplify_patterns(patterns_t&)
-	{
-		// TBD
-	}
-
-	RTLIL::SigSpec make_patterns_logic(patterns_t patterns, bool make_gates)
-	{
-		RTLIL::SigSpec or_input;
-
-		for (auto pat : patterns)
-		{
-			RTLIL::SigSpec s1, s2;
-			for (auto it : pat) {
-				s1.append(it.first);
-				s2.append(it.second);
-			}
-
-			RTLIL::SigSpec y = module->addWire(NEW_ID);
-			RTLIL::Cell *c = module->addNe(NEW_ID, s1, s2, y);
-
-			if (make_gates) {
-				simplemap(module, c);
-				module->remove(c);
-			}
-
-			or_input.append(y);
-		}
-
-		if (GetSize(or_input) == 0)
-			return RTLIL::S1;
-
-		if (GetSize(or_input) == 1)
-			return or_input;
-
-		RTLIL::SigSpec y = module->addWire(NEW_ID);
-		RTLIL::Cell *c = module->addReduceAnd(NEW_ID, or_input, y);
-
-		if (make_gates) {
-			simplemap(module, c);
-			module->remove(c);
-		}
-
-		return y;
-	}
-
-	void handle_dff_cell(RTLIL::Cell *dff_cell)
-	{
-		RTLIL::SigSpec sig_d = sigmap(dff_cell->getPort("\\D"));
-		RTLIL::SigSpec sig_q = sigmap(dff_cell->getPort("\\Q"));
-
-		std::map<patterns_t, std::set<int>> grouped_patterns;
-		std::set<int> remaining_indices;
-		RTLIL::SigSpec sig_master_a;
-		RTLIL::SigSpec sig_master_y;
-		RTLIL::SigSpec sig_slave_a;
-
-		for (int i = 0 ; i < GetSize(sig_d); i++) {
-			patterns_t patterns = find_muxtree_feedback_patterns(sig_d[i], sig_q[i], pattern_t());
-			if (!patterns.empty()) {
-				simplify_patterns(patterns);
-				grouped_patterns[patterns].insert(i);
-			} else
-				remaining_indices.insert(i);
-		}
-
-		for (auto &it : grouped_patterns) {
-			RTLIL::SigSpec new_sig_d, new_sig_q;
-			for (int i : it.second) {
-				new_sig_d.append(sig_d[i]);
-				new_sig_q.append(sig_q[i]);
-			}
-			if (!direct_dict.empty()) {
-				log("  converting %s cell %s to %s for %s -> %s.\n", log_id(dff_cell->type), log_id(dff_cell), log_id(direct_dict.at(dff_cell->type)), log_signal(new_sig_d), log_signal(new_sig_q));
-				dff_cell->setPort("\\E", make_patterns_logic(it.first, true));
-				dff_cell->type = direct_dict.at(dff_cell->type);
-			} else
-			if (dff_cell->type == "$dff") {
-
-				sig_master_a.append( sig_master_y ); 
-				sig_master_a.append( make_patterns_logic(it.first, false) ); 
-				sig_master_a.append( dff_cell->getPort("\\CLK") ); 
-
-				sig_slave_a.append( sig_master_y ); 
-				sig_slave_a.append( new_sig_q ); 
-				sig_slave_a.append( dff_cell->getPort("\\CLK") ); 
-				RTLIL::Cell *new_cell_master = module->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const("11001010"));
-				RTLIL::Cell *new_cell_slave = module->addLut(NEW_ID, sig_slave_a, new_sig_q, RTLIL::Const::Const("11001010"));
-				log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(new_sig_d), log_signal(new_sig_q));
-				std::cerr <<"dog"<<std::endl;
-			} else {
-				sig_master_a.append( sig_master_y ); 
-				sig_master_a.append( make_patterns_logic(it.first, false) ); 
-				sig_master_a.append( dff_cell->getPort("\\CLK") ); 
-
-				sig_slave_a.append( sig_master_y ); 
-				sig_slave_a.append( new_sig_q ); 
-				sig_slave_a.append( dff_cell->getPort("\\CLK") ); 
-				RTLIL::Cell *new_cell_master = module->addLut(NEW_ID, sig_master_a, sig_master_y, RTLIL::Const::Const("11001010"));
-				RTLIL::Cell *new_cell_slave = module->addLut(NEW_ID, sig_slave_a, new_sig_q, RTLIL::Const::Const("11001010"));
-				log("  created $lut cells %s, %s for %s -> %s.\n", log_id(new_cell_master), log_id(new_cell_slave), log_signal(new_sig_d), log_signal(new_sig_q));	
-				std::cerr <<"loopy"<<std::endl;
-				/*				
-				RTLIL::Cell *new_cell = module->addDffeGate(NEW_ID, dff_cell->getPort("\\C"), make_patterns_logic(it.first, true),
-						new_sig_d, new_sig_q, dff_cell->type == "$_DFF_P_", true);
-				log("  created %s cell %s for %s -> %s.\n", log_id(new_cell->type), log_id(new_cell), log_signal(new_sig_d), log_signal(new_sig_q));
-				*/
-			}
-		}
-
-		if (!direct_dict.empty())
-			return;
-
-		if (remaining_indices.empty()) {
-			log("  removing now obsolete cell %s.\n", log_id(dff_cell));
-			module->remove(dff_cell);
-		} else if (GetSize(remaining_indices) != GetSize(sig_d)) {
-			log("  removing %d now obsolete bits from cell %s.\n", GetSize(sig_d) - GetSize(remaining_indices), log_id(dff_cell));
-			RTLIL::SigSpec new_sig_d, new_sig_q;
-			for (int i : remaining_indices) {
-				new_sig_d.append(sig_d[i]);
-				new_sig_q.append(sig_q[i]);
-			}
-			dff_cell->setPort("\\D", new_sig_d);
-			dff_cell->setPort("\\Q", new_sig_q);
-			dff_cell->setParam("\\WIDTH", GetSize(remaining_indices));
-		}
-	}
-
-	void run()
-	{
-		log("Transforming FF to 4LUT cells in module %s:\n", log_id(module));
-		for (auto dff_cell : dff_cells) {
-			// log("Handling candidate %s:\n", log_id(dff_cell));
-			handle_dff_cell(dff_cell);
-		}
-	}
 };
 
 struct Dff2lutPass : public Pass {
@@ -306,7 +134,7 @@ struct Dff2lutPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing Dff2lut pass (transform $dff to $dffe where applicable).\n");
+		log_header("Executing Dff2lut pass (transform $dff to $lut where applicable).\n");
 
 		bool unmap_mode = false;
 		dict<IdString, IdString> direct_dict;
@@ -354,9 +182,9 @@ struct Dff2lutPass : public Pass {
 			if (!mod->has_processes_warn())
 			{
 
-
-				Dff2lutWorker worker(mod, direct_dict);
-				worker.run();
+				for (auto cell : mod->selected_cells()) {
+					Dff2lutWorker worker(mod, direct_dict, cell);
+				}
 			}
 	}
 } Dff2lutPass;
