@@ -50,9 +50,9 @@ struct Dff2lutWorker
 
 			if( direct_dict.empty() ){
 				if (cell->type == "$dff") {
-					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 3);
 					RTLIL::SigSpec sig_master_y = mod->addWire(NEW_ID,1);
-					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 3);
 					//RTLIL::SigSpec data = mod->addWire(NEW_ID, GetSize(cell->getPort("\\D")));
 					//mod->addDff(NEW_ID, cell->getPort("\\CLK"), tmp, cell->getPort("\\Q"), cell->getParam("\\CLK_POLARITY").as_bool());
 
@@ -73,9 +73,9 @@ struct Dff2lutWorker
 				}
 			}else{
 				if (direct_dict.count(cell->type)) {
-					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_master_a = mod->addWire(NEW_ID, 3);
 					RTLIL::SigSpec sig_master_y = mod->addWire(NEW_ID,1);
-					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 4);
+					RTLIL::SigSpec sig_slave_a = mod->addWire(NEW_ID, 3);
 					//RTLIL::SigSpec data = mod->addWire(NEW_ID, GetSize(cell->getPort("\\D")));
 					//mod->addDff(NEW_ID, cell->getPort("\\CLK"), tmp, cell->getPort("\\Q"), cell->getParam("\\CLK_POLARITY").as_bool());
 
