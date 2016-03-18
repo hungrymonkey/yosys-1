@@ -23,19 +23,19 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-struct MiniFpgaFfssrPass : public Pass {
-	MiniFpgaFfssrPass() : Pass("minifpga_ffssr", "miniFPGA: merge synchronous set/reset into FF cells") { }
+struct TritonCoreFfssrPass : public Pass {
+	TritonCoreFfssrPass() : Pass("tritoncore_ffssr", "miniFPGA: merge synchronous set/reset into FF cells") { }
 	virtual void help()
 	{
 		log("\n");
-		log("    minifpga_ffssr [options] [selection]\n");
+		log("    tritoncore_ffssr [options] [selection]\n");
 		log("\n");
 		log("Merge synchronous set/reset $_MUX_ cells into iCE40 FFs.\n");
 		log("\n");
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing MINIFPGA_FFSSR pass (merge synchronous set/reset into FF cells).\n");
+		log_header("Executing TRITONCORE_FFSSR pass (merge synchronous set/reset into FF cells).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -118,6 +118,6 @@ struct MiniFpgaFfssrPass : public Pass {
 			}
 		}
 	}
-} MiniFpgaFfssrPass;
+} TritonCoreFfssrPass;
 
 PRIVATE_NAMESPACE_END

@@ -26,7 +26,7 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-static void run_minifpga_opts(Module *module)
+static void run_tritoncore_opts(Module *module)
 {
 	pool<SigBit> optimized_co;
 	vector<Cell*> sb_lut_cells;
@@ -84,17 +84,17 @@ static void run_minifpga_opts(Module *module)
 }
 
 struct Ice40OptPass : public Pass {
-	Ice40OptPass() : Pass("minifpga_opt", "miniFpga: perform simple optimizations") { }
+	Ice40OptPass() : Pass("tritoncore_opt", "tritonCore: perform simple optimizations") { }
 	virtual void help()
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
-		log("    minifpga_opt [options] [selection]\n");
+		log("    tritoncore_opt [options] [selection]\n");
 		log("\n");
 		log("This command executes the following script:\n");
 		log("\n");
 		log("    do\n");
-		log("        <minifpga specific optimizations>\n");
+		log("        <tritoncore specific optimizations>\n");
 		log("        opt_const -mux_undef -undriven [-full]\n");
 		log("        opt_share\n");
 		log("        opt_rmdff\n");
@@ -105,7 +105,7 @@ struct Ice40OptPass : public Pass {
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
 		string opt_const_args = "-mux_undef -undriven";
-		log_header("Executing MINIFPGA_OPT pass (performing simple optimizations).\n");
+		log_header("Executing TRITONCORE_OPT pass (performing simple optimizations).\n");
 		log_push();
 
 		size_t argidx;
@@ -122,9 +122,9 @@ struct Ice40OptPass : public Pass {
 		{
 			design->scratchpad_unset("opt.did_something");
 
-			log_header("Running MINIFPGA specific optimizations.\n");
+			log_header("Running TRITONCORE specific optimizations.\n");
 			for (auto module : design->selected_modules())
-				run_minifpga_opts(module);
+				run_tritoncore_opts(module);
 
 			Pass::call(design, "opt_const " + opt_const_args);
 			Pass::call(design, "opt_share");

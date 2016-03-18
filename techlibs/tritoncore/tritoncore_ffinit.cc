@@ -23,13 +23,13 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-struct MiniFpgaFfinitPass : public Pass {
-	MiniFpgaFfinitPass() : Pass("minifpga_ffinit", "miniFpga: handle FF init values") { }
+struct TritonCoreFfinitPass : public Pass {
+	TritonCoreFfinitPass() : Pass("tritoncore_ffinit", "tritonCore: handle FF init values") { }
 	virtual void help()
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
-		log("    minifpga_ffinit [options] [selection]\n");
+		log("    tritoncore_ffinit [options] [selection]\n");
 		log("\n");
 		log("Remove zero init values for FF output signals. Add inverters to implement\n");
 		log("nonzero init values.\n");
@@ -37,7 +37,7 @@ struct MiniFpgaFfinitPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing MINIFPGA_FFINIT pass (implement FF init values).\n");
+		log_header("Executing TRITONCORE_FFINIT pass (implement FF init values).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -158,6 +158,6 @@ struct MiniFpgaFfinitPass : public Pass {
 			}
 		}
 	}
-} MiniFpgaFfinitPass;
+} TritonCoreFfinitPass;
 
 PRIVATE_NAMESPACE_END

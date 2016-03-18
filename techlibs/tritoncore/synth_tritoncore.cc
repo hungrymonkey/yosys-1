@@ -34,15 +34,15 @@ bool check_label(bool &active, std::string run_from, std::string run_to, std::st
 	return active;
 }
 
-struct SynthMiniFpgaPass : public Pass {
-	SynthMiniFpgaPass() : Pass("synth_minifpga", "synthesis for MINIFPGA FPGAs") { }
+struct SynthTritonCorePass : public Pass {
+	SynthTritonCorePass() : Pass("synth_tritoncore", "synthesis for TRITONCORE FPGAs") { }
 	virtual void help()
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
-		log("    synth_minifpga [options]\n");
+		log("    synth_tritoncore [options]\n");
 		log("\n");
-		log("This command runs synthesis for MINIFPGA FPGAs. This work is experimental.\n");
+		log("This command runs synthesis for TRITONCORE FPGAs. This work is experimental.\n");
 		log("\n");
 		log("    -top <module>\n");
 		log("        use the specified module as top module (default='top')\n");
@@ -76,7 +76,7 @@ struct SynthMiniFpgaPass : public Pass {
 		log("The following commands are executed by this synthesis command:\n");
 		log("\n");
 		log("    begin:\n");
-		log("        read_verilog -lib +/minifpga/cells_sim.v\n");
+		log("        read_verilog -lib +/tritoncore/cells_sim.v\n");
 		log("        hierarchy -check -top <top>\n");
 		log("\n");
 		log("    flatten:         (unless -noflatten)\n");
@@ -91,29 +91,29 @@ struct SynthMiniFpgaPass : public Pass {
 		log("        opt -fast -mux_undef -undriven -fine\n");
 		log("        memory_map\n");
 		log("        opt -undriven -fine\n");
-		log("        techmap -map +/techmap.v [-map +/minifpga/arith_map.v]\n");
+		log("        techmap -map +/techmap.v [-map +/tritoncore/arith_map.v]\n");
 		log("        abc -dff     (only if -retime)\n");
-		log("        minifpga_opt\n");
+		log("        tritoncore_opt\n");
 		log("\n");
 		log("    map_ffs:\n");
 		log("        dffsr2dff\n");
 		//log("        dff2dffe -direct-match $_DFF_*\n");
 		log("        dff2lut -direct-match $_DFF_*\n");
-		log("        techmap -map +/minifpga/cells_map.v\n");
+		log("        techmap -map +/tritoncore/cells_map.v\n");
 		log("        opt_const -mux_undef\n");
 		log("        simplemap\n");
-		log("        minifpga_ffinit\n");
-		log("        minifpga_ffssr\n");
-		log("        minifpga_opt -full\n");
+		log("        tritoncore_ffinit\n");
+		log("        tritoncore_ffssr\n");
+		log("        tritoncore_opt -full\n");
 		log("\n");
 		log("    map_luts:\n");
 		log("        abc          (only if -abc2)\n");
-		log("        minifpga_opt    (only if -abc2)\n");
+		log("        tritoncore_opt    (only if -abc2)\n");
 		log("        abc -lut 4\n");
 		log("        clean\n");
 		log("\n");
 		log("    map_cells:\n");
-		log("        techmap -map +/minifpga/cells_map.v\n");
+		log("        techmap -map +/tritoncore/cells_map.v\n");
 		log("        clean\n");
 		log("\n");
 		log("    check:\n");
@@ -195,12 +195,12 @@ struct SynthMiniFpgaPass : public Pass {
 
 		bool active = run_from.empty();
 
-		log_header("Executing SYNTH_MINIFPGA pass.\n");
+		log_header("Executing SYNTH_TRITONCORE pass.\n");
 		log_push();
 
 		if (check_label(active, run_from, run_to, "begin"))
 		{
-			Pass::call(design, "read_verilog -lib +/minifpga/cells_sim.v");
+			Pass::call(design, "read_verilog -lib +/tritoncore/cells_sim.v");
 			Pass::call(design, stringf("hierarchy -check %s", top_opt.c_str()));
 		}
 
@@ -236,12 +236,12 @@ struct SynthMiniFpgaPass : public Pass {
 			Pass::call(design, "dffsr2dff");
 //			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
 			Pass::call(design, "dff2lut -direct-match $_DFF_*");
-			Pass::call(design, "techmap -map +/minifpga/cells_map.v");
+			Pass::call(design, "techmap -map +/tritoncore/cells_map.v");
 			Pass::call(design, "opt_const -mux_undef");
 			Pass::call(design, "simplemap");
-			Pass::call(design, "minifpga_ffinit");
-			Pass::call(design, "minifpga_ffssr");
-			Pass::call(design, "minifpga_opt -full");
+			Pass::call(design, "tritoncore_ffinit");
+			Pass::call(design, "tritoncore_ffssr");
+			Pass::call(design, "tritoncore_opt -full");
 		}
 
 
@@ -249,7 +249,7 @@ struct SynthMiniFpgaPass : public Pass {
 		{
 			if (abc2) {
 				Pass::call(design, "abc");
-				Pass::call(design, "minifpga_opt");
+				Pass::call(design, "tritoncore_opt");
 			}
 			Pass::call(design, "abc -lut 4");
 			Pass::call(design, "clean");
@@ -257,7 +257,7 @@ struct SynthMiniFpgaPass : public Pass {
 
 		if (check_label(active, run_from, run_to, "map_cells"))
 		{
-			Pass::call(design, "techmap -map +/minifpga/cells_map.v");
+			Pass::call(design, "techmap -map +/tritoncore/cells_map.v");
 			Pass::call(design, "clean");
 		}
 
@@ -282,6 +282,6 @@ struct SynthMiniFpgaPass : public Pass {
 
 		log_pop();
 	}
-} SynthMiniFpgaPass;
+} SynthTritonCorePass;
 
 PRIVATE_NAMESPACE_END
