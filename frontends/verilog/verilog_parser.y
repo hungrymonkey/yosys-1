@@ -246,11 +246,10 @@ module_para_opt:
 	'#' '(' { astbuf1 = nullptr; } module_para_list { if (astbuf1) delete astbuf1; } ')' | /* empty */;
 
 module_para_list:
-	single_module_para |
-	single_module_para ',' module_para_list |
-	/* empty */;
+	single_module_para | module_para_list ',' single_module_para;
 
 single_module_para:
+	/* empty */ |
 	TOK_PARAMETER {
 		if (astbuf1) delete astbuf1;
 		astbuf1 = new AstNode(AST_PARAMETER);
@@ -825,10 +824,10 @@ cell_parameter_list_opt:
 	'#' '(' cell_parameter_list ')' | /* empty */;
 
 cell_parameter_list:
-	/* empty */ | cell_parameter |
-	cell_parameter ',' cell_parameter_list;
+	cell_parameter | cell_parameter_list ',' cell_parameter;
 
 cell_parameter:
+	/* empty */ |
 	expr {
 		AstNode *node = new AstNode(AST_PARASET);
 		astbuf1->children.push_back(node);
@@ -843,14 +842,10 @@ cell_parameter:
 	};
 
 cell_port_list:
-	/* empty */ | cell_port |
-	cell_port ',' cell_port_list |
-	/* empty */ ',' {
-		AstNode *node = new AstNode(AST_ARGUMENT);
-		astbuf2->children.push_back(node);
-	} cell_port_list;
+	cell_port | cell_port_list ',' cell_port;
 
 cell_port:
+	/* empty */ |
 	expr {
 		AstNode *node = new AstNode(AST_ARGUMENT);
 		astbuf2->children.push_back(node);

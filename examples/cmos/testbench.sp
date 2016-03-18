@@ -9,8 +9,8 @@ Vdd Vdd 0 DC 3
 .MODEL cmosp PMOS LEVEL=1 VT0=-0.7 KP=50U GAMMA=0.57 LAMBDA=0.05 PHI=0.8
 
 * load design and library
-.include synth.sp
 .include cmos_cells.sp
+.include synth.sp
 
 * input signals
 Vclk clk 0 PULSE(0 3 1 0.1 0.1 0.8 2)
