@@ -1,0 +1,3 @@
+To generate netlist for triton code
+
+yosys -p "synth_tritoncore -blif output.blif" input.v
