@@ -1,3 +1,11 @@
+To Build yosys, you will need these utilities.
+
+Deps: clang, python3, git, tcl, libreadline, bison, flex, make, mercurial (hg), xdot, gv
+
+
+$make
+$make install
+
 To generate netlist for triton code
 
 yosys -p "synth_tritoncore -blif output.blif" input.v
