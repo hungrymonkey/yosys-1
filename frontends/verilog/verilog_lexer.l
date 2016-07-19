@@ -141,6 +141,8 @@ YOSYS_NAMESPACE_END
 "endfunction"  { return TOK_ENDFUNCTION; }
 "task"         { return TOK_TASK; }
 "endtask"      { return TOK_ENDTASK; }
+"package"      { SV_KEYWORD(TOK_PACKAGE); }
+"endpackage"   { SV_KEYWORD(TOK_ENDPACKAGE); }
 "parameter"    { return TOK_PARAMETER; }
 "localparam"   { return TOK_LOCALPARAM; }
 "defparam"     { return TOK_DEFPARAM; }
@@ -171,6 +173,7 @@ YOSYS_NAMESPACE_END
 
 "assert"   { if (formal_mode) return TOK_ASSERT; SV_KEYWORD(TOK_ASSERT); }
 "assume"   { if (formal_mode) return TOK_ASSUME; SV_KEYWORD(TOK_ASSUME); }
+"expect"   { if (formal_mode) return TOK_EXPECT; SV_KEYWORD(TOK_EXPECT); }
 "property" { if (formal_mode) return TOK_PROPERTY; SV_KEYWORD(TOK_PROPERTY); }
 "logic"    { SV_KEYWORD(TOK_REG); }
 "bit"      { SV_KEYWORD(TOK_REG); }
@@ -350,6 +353,8 @@ import[ \t\r\n]+\"(DPI|DPI-C)\"[ \t\r\n]+function[ \t\r\n]+ {
 ">>"  { return OP_SHR; }
 "<<<" { return OP_SSHL; }
 ">>>" { return OP_SSHR; }
+
+"::"  { SV_KEYWORD(TOK_PACKAGESEP); }
 
 "+:" { return TOK_POS_INDEXED; }
 "-:" { return TOK_NEG_INDEXED; }

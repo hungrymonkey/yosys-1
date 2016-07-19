@@ -40,6 +40,8 @@ YOSYS_NAMESPACE_BEGIN
 
 std::vector<FILE*> log_files;
 std::vector<std::ostream*> log_streams;
+std::map<std::string, std::set<std::string>> log_hdump;
+bool log_hdump_all = false;
 FILE *log_errfile = NULL;
 SHA1 *log_hasher = NULL;
 
@@ -136,7 +138,7 @@ void logv(const char *format, va_list ap)
 		*f << str;
 }
 
-void logv_header(const char *format, va_list ap)
+void logv_header(RTLIL::Design *design, const char *format, va_list ap)
 {
 	bool pop_errfile = false;
 
@@ -149,11 +151,23 @@ void logv_header(const char *format, va_list ap)
 		pop_errfile = true;
 	}
 
+	std::string header_id;
+
 	for (int c : header_count)
-		log("%d.", c);
-	log(" ");
+		header_id += stringf("%s%d", header_id.empty() ? "" : ".", c);
+
+	log("%s. ", header_id.c_str());
 	logv(format, ap);
 	log_flush();
+
+	if (log_hdump_all)
+		log_hdump[header_id].insert("yosys_dump_" + header_id + ".il");
+
+	if (log_hdump.count(header_id) && design != nullptr)
+		for (auto &filename : log_hdump.at(header_id)) {
+			log("Dumping current design to '%s'.\n", filename.c_str());
+			Pass::call(design, {"dump", "-o", filename});
+		}
 
 	if (pop_errfile)
 		log_files.pop_back();
@@ -206,11 +220,11 @@ void log(const char *format, ...)
 	va_end(ap);
 }
 
-void log_header(const char *format, ...)
+void log_header(RTLIL::Design *design, const char *format, ...)
 {
 	va_list ap;
 	va_start(ap, format);
-	logv_header(format, ap);
+	logv_header(design, format, ap);
 	va_end(ap);
 }
 

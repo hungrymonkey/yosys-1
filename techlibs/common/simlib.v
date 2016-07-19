@@ -33,6 +33,12 @@
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $not (A, Y)
+//-
+//- A bit-wise inverter. This corresponds to the Verilog unary prefix '~' operator.
+//-
 module \$not (A, Y);
 
 parameter A_SIGNED = 0;
@@ -55,6 +61,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $pos (A, Y)
+//-
+//- A buffer. This corresponds to the Verilog unary prefix '+' operator.
+//-
 module \$pos (A, Y);
 
 parameter A_SIGNED = 0;
@@ -76,6 +88,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $neg (A, Y)
+//-
+//- An arithmetic inverter. This corresponds to the Verilog unary prefix '-' operator.
+//-
 module \$neg (A, Y);
 
 parameter A_SIGNED = 0;
@@ -97,6 +115,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $and (A, B, Y)
+//-
+//- A bit-wise AND. This corresponds to the Verilog '&' operator.
+//-
 module \$and (A, B, Y);
 
 parameter A_SIGNED = 0;
@@ -121,6 +145,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $or (A, B, Y)
+//-
+//- A bit-wise OR. This corresponds to the Verilog '|' operator.
+//-
 module \$or (A, B, Y);
 
 parameter A_SIGNED = 0;
@@ -145,6 +175,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $xor (A, B, Y)
+//-
+//- A bit-wise XOR. This corresponds to the Verilog '^' operator.
+//-
 module \$xor (A, B, Y);
 
 parameter A_SIGNED = 0;
@@ -169,6 +205,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $xnor (A, B, Y)
+//-
+//- A bit-wise XNOR. This corresponds to the Verilog '~^' operator.
+//-
 module \$xnor (A, B, Y);
 
 parameter A_SIGNED = 0;
@@ -193,6 +235,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $reduce_and (A, B, Y)
+//-
+//- An AND reduction. This corresponds to the Verilog unary prefix '&' operator.
+//-
 module \$reduce_and (A, Y);
 
 parameter A_SIGNED = 0;
@@ -214,6 +262,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $reduce_or (A, B, Y)
+//-
+//- An OR reduction. This corresponds to the Verilog unary prefix '|' operator.
+//-
 module \$reduce_or (A, Y);
 
 parameter A_SIGNED = 0;
@@ -235,6 +289,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $reduce_xor (A, B, Y)
+//-
+//- A XOR reduction. This corresponds to the Verilog unary prefix '^' operator.
+//-
 module \$reduce_xor (A, Y);
 
 parameter A_SIGNED = 0;
@@ -256,6 +316,12 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $reduce_xnor (A, B, Y)
+//-
+//- A XNOR reduction. This corresponds to the Verilog unary prefix '~^' operator.
+//-
 module \$reduce_xnor (A, Y);
 
 parameter A_SIGNED = 0;
@@ -277,6 +343,13 @@ endmodule
 
 // --------------------------------------------------------
 
+//  |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
+//-
+//-     $reduce_bool (A, B, Y)
+//-
+//- An OR reduction. This cell type is used instead of $reduce_or when a signal is
+//- implicitly converted to a boolean signal, e.g. for operands of '&&' and '||'.
+//-
 module \$reduce_bool (A, Y);
 
 parameter A_SIGNED = 0;
@@ -1156,6 +1229,34 @@ endmodule
 `endif
 // --------------------------------------------------------
 
+module \$sop (A, Y);
+
+parameter WIDTH = 0;
+parameter DEPTH = 0;
+parameter TABLE = 0;
+
+input [WIDTH-1:0] A;
+output reg Y;
+
+integer i, j;
+reg match;
+
+always @* begin
+	Y = 0;
+	for (i = 0; i < DEPTH; i=i+1) begin
+		match = 1;
+		for (j = 0; j < WIDTH; j=j+1) begin
+			if (TABLE[2*WIDTH*i + 2*j + 0] && A[j]) match = 0;
+			if (TABLE[2*WIDTH*i + 2*j + 1] && !A[j]) match = 0;
+		end
+		if (match) Y = 1;
+	end
+end
+
+endmodule
+
+// --------------------------------------------------------
+
 module \$tribuf (A, EN, Y);
 
 parameter WIDTH = 0;
@@ -1204,6 +1305,22 @@ endmodule
 
 // --------------------------------------------------------
 
+module \$expect (A, EN);
+
+input A, EN;
+
+`ifndef SIMLIB_NOCHECKS
+always @* begin
+	if (A === 1'b1 && EN === 1'b1) begin
+		$display("Expectation %m passed.");
+	end
+end
+`endif
+
+endmodule
+
+// --------------------------------------------------------
+
 module \$equiv (A, B, Y);
 
 input A, B;
@@ -1239,7 +1356,7 @@ wire [WIDTH-1:0] pos_clr = CLR_POLARITY ? CLR : ~CLR;
 
 genvar i;
 generate
-	for (i = 0; i < WIDTH; i = i+1) begin:bit
+	for (i = 0; i < WIDTH; i = i+1) begin:bitslices
 		always @(posedge pos_set[i], posedge pos_clr[i])
 			if (pos_clr[i])
 				Q[i] <= 0;
@@ -1308,7 +1425,7 @@ wire [WIDTH-1:0] pos_clr = CLR_POLARITY ? CLR : ~CLR;
 
 genvar i;
 generate
-	for (i = 0; i < WIDTH; i = i+1) begin:bit
+	for (i = 0; i < WIDTH; i = i+1) begin:bitslices
 		always @(posedge pos_set[i], posedge pos_clr[i], posedge pos_clk)
 			if (pos_clr[i])
 				Q[i] <= 0;
@@ -1384,7 +1501,7 @@ wire [WIDTH-1:0] pos_clr = CLR_POLARITY ? CLR : ~CLR;
 
 genvar i;
 generate
-	for (i = 0; i < WIDTH; i = i+1) begin:bit
+	for (i = 0; i < WIDTH; i = i+1) begin:bitslices
 		always @*
 			if (pos_clr[i])
 				Q[i] = 0;

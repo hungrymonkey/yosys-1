@@ -51,8 +51,8 @@ void proc_rmdead(RTLIL::SwitchRule *sw, int &counter)
 				counter++;
 				continue;
 			}
-			if (pool.empty())
-				sw->cases[i]->compare.clear();
+			// if (pool.empty())
+			// 	sw->cases[i]->compare.clear();
 		}
 
 		for (auto switch_it : sw->cases[i]->switches)
@@ -76,7 +76,7 @@ struct ProcRmdeadPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing PROC_RMDEAD pass (remove dead branches from decision trees).\n");
+		log_header(design, "Executing PROC_RMDEAD pass (remove dead branches from decision trees).\n");
 
 		extra_args(args, 1, design);
 

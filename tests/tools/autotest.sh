@@ -16,7 +16,7 @@ toolsdir="$(cd $(dirname $0); pwd)"
 warn_iverilog_git=false
 
 if [ ! -f $toolsdir/cmp_tbdata -o $toolsdir/cmp_tbdata.c -nt $toolsdir/cmp_tbdata ]; then
-	( set -ex;  gcc -Wall -o $toolsdir/cmp_tbdata $toolsdir/cmp_tbdata.c; ) || exit 1
+	( set -ex; ${CC:-gcc} -Wall -o $toolsdir/cmp_tbdata $toolsdir/cmp_tbdata.c; ) || exit 1
 fi
 
 while getopts xmGl:wkjvref:s:p:n: opt; do
@@ -56,28 +56,24 @@ while getopts xmGl:wkjvref:s:p:n: opt; do
 	esac
 done
 
-create_ref() {
-	cp "$1" "$2.v"
-}
-
 compile_and_run() {
 	exe="$1"; output="$2"; shift 2
 	if $use_modelsim; then
 		altver=$( ls -v /opt/altera/ | grep '^[0-9]' | tail -n1; )
 		/opt/altera/$altver/modelsim_ase/bin/vlib work
-		/opt/altera/$altver/modelsim_ase/bin/vlog "$@"
-		/opt/altera/$altver/modelsim_ase/bin/vsim -c -do 'run -all; exit;' testbench | grep '#OUT#' > "$output"
+		/opt/altera/$altver/modelsim_ase/bin/vlog +define+outfile=\"$output\" "$@"
+		/opt/altera/$altver/modelsim_ase/bin/vsim -c -do 'run -all; exit;' testbench
 	elif $use_xsim; then
 		(
 			set +x
 			files=( "$@" )
 			xilver=$( ls -v /opt/Xilinx/Vivado/ | grep '^[0-9]' | tail -n1; )
-			/opt/Xilinx/Vivado/$xilver/bin/xvlog "${files[@]}"
-			/opt/Xilinx/Vivado/$xilver/bin/xelab -R work.testbench | grep '#OUT#' > "$output"
+			/opt/Xilinx/Vivado/$xilver/bin/xvlog -d outfile=\"$output\" "${files[@]}"
+			/opt/Xilinx/Vivado/$xilver/bin/xelab -R work.testbench
 		)
 	else
-		iverilog -s testbench -o "$exe" "$@"
-		vvp -n "$exe" > "$output"
+		iverilog -Doutfile=\"$output\" -s testbench -o "$exe" "$@"
+		vvp -n "$exe"
 	fi
 }
 
@@ -108,15 +104,15 @@ do
 		fn=$(basename $fn)
 		bn=$(basename $bn)
 
-		cp ../$fn $fn
+		egrep -v '^\s*`timescale' ../$fn > ${bn}_ref.v
+
 		if [ ! -f ../${bn}_tb.v ]; then
-			"$toolsdir"/../../yosys -b "test_autotb $autotb_opts" -o ${bn}_tb.v $fn
+			"$toolsdir"/../../yosys -b "test_autotb $autotb_opts" -o ${bn}_tb.v ${bn}_ref.v
 		else
 			cp ../${bn}_tb.v ${bn}_tb.v
 		fi
 		if $genvcd; then sed -i 's,// \$dump,$dump,g' ${bn}_tb.v; fi
-		create_ref $fn ${bn}_ref
-		compile_and_run  ${bn}_tb_ref ${bn}_out_ref ${bn}_tb.v ${bn}_ref.v $libs
+		compile_and_run ${bn}_tb_ref ${bn}_out_ref ${bn}_tb.v ${bn}_ref.v $libs
 		if $genvcd; then mv testbench.vcd ${bn}_ref.vcd; fi
 
 		test_count=0
@@ -131,22 +127,22 @@ do
 			test_count=$(( test_count + 1 ))
 		}
 
-		if [ "$frontend" = "verific" -o "$frontend" = "verific_gates" ] && grep -q VERIFIC-SKIP $fn; then
+		if [ "$frontend" = "verific" -o "$frontend" = "verific_gates" ] && grep -q VERIFIC-SKIP ${bn}_ref.v; then
 			touch ../${bn}.skip
 			return
 		fi
 
 		if [ -n "$scriptfiles" ]; then
-			test_passes $fn $scriptfiles
+			test_passes ${bn}_ref.v $scriptfiles
 		elif [ -n "$scriptopt" ]; then
-			test_passes -f "$frontend" -p "$scriptopt" $fn
+			test_passes -f "$frontend" -p "$scriptopt" ${bn}_ref.v
 		elif [ "$frontend" = "verific" ]; then
-			test_passes -p "verific -vlog2k $fn; verific -import -all; opt; memory;;"
+			test_passes -p "verific -vlog2k ${bn}_ref.v; verific -import -all; opt; memory;;"
 		elif [ "$frontend" = "verific_gates" ]; then
-			test_passes -p "verific -vlog2k $fn; verific -import -gates -all; opt; memory;;"
+			test_passes -p "verific -vlog2k ${bn}_ref.v; verific -import -gates -all; opt; memory;;"
 		else
-			test_passes -f "$frontend" -p "hierarchy; proc; opt; memory; opt; fsm; opt -full -fine" $fn
-			test_passes -f "$frontend" -p "hierarchy; synth -run coarse; techmap; opt; abc -dff" $fn
+			test_passes -f "$frontend" -p "hierarchy; proc; opt; memory; opt; fsm; opt -full -fine" ${bn}_ref.v
+			test_passes -f "$frontend" -p "hierarchy; synth -run coarse; techmap; opt; abc -dff" ${bn}_ref.v
 		fi
 		touch ../${bn}.log
 	}

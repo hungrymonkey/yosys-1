@@ -25,18 +25,11 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-bool check_label(bool &active, std::string run_from, std::string run_to, std::string label)
+struct SynthGreenPAK4Pass : public ScriptPass
 {
-	if (label == run_from)
-		active = true;
-	if (label == run_to)
-		active = false;
-	return active;
-}
+	SynthGreenPAK4Pass() : ScriptPass("synth_greenpak4", "synthesis for GreenPAK4 FPGAs") { }
 
-struct SynthGreenPAK4Pass : public Pass {
-	SynthGreenPAK4Pass() : Pass("synth_greenpak4", "synthesis for GreenPAK4 FPGAs") { }
-	virtual void help()
+	virtual void help() YS_OVERRIDE
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
@@ -47,12 +40,12 @@ struct SynthGreenPAK4Pass : public Pass {
 		log("    -top <module>\n");
 		log("        use the specified module as top module (default='top')\n");
 		log("\n");
-		log("    -blif <file>\n");
-		log("        write the design to the specified BLIF file. writing of an output file\n");
-		log("        is omitted if this parameter is not specified.\n");
+		log("    -part <part>\n");
+		log("        synthesize for the specified part. Valid values are SLG46140V,\n");
+		log("        SLG46620V, and SLG46621V (default).\n");
 		log("\n");
-		log("    -edif <file>\n");
-		log("        write the design to the specified edif file. writing of an output file\n");
+		log("    -json <file>\n");
+		log("        write the design to the specified JSON file. writing of an output file\n");
 		log("        is omitted if this parameter is not specified.\n");
 		log("\n");
 		log("    -run <from_label>:<to_label>\n");
@@ -68,55 +61,26 @@ struct SynthGreenPAK4Pass : public Pass {
 		log("\n");
 		log("\n");
 		log("The following commands are executed by this synthesis command:\n");
-		log("\n");
-		log("    begin:\n");
-		log("        read_verilog -lib +/greenpak4/cells_sim.v\n");
-		log("        hierarchy -check -top <top>\n");
-		log("\n");
-		log("    flatten:         (unless -noflatten)\n");
-		log("        proc\n");
-		log("        flatten\n");
-		log("        tribuf -logic\n");
-		log("\n");
-		log("    coarse:\n");
-		log("        synth -run coarse\n");
-		log("\n");
-		log("    fine:\n");
-		log("        opt -fast -mux_undef -undriven -fine\n");
-		log("        memory_map\n");
-		log("        opt -undriven -fine\n");
-		log("        techmap\n");
-		log("        dfflibmap -prepare -liberty +/greenpak4/gp_dff.lib\n");
-		log("        opt -fast\n");
-		log("        abc -dff     (only if -retime)\n");
-		log("\n");
-		log("    map_luts:\n");
-		log("        nlutmap -luts 0,8,16,2\n");
-		log("        clean\n");
-		log("\n");
-		log("    map_cells:\n");
-		log("        techmap -map +/greenpak4/cells_map.v\n");
-		log("        clean\n");
-		log("\n");
-		log("    check:\n");
-		log("        hierarchy -check\n");
-		log("        stat\n");
-		log("        check -noinit\n");
-		log("\n");
-		log("    blif:\n");
-		log("        write_blif -gates -attr -param <file-name>\n");
-		log("\n");
-		log("    edif:\n");
-		log("        write_edif <file-name>\n");
+		help_script();
 		log("\n");
 	}
-	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
+
+	string top_opt, part, json_file;
+	bool flatten, retime;
+
+	virtual void clear_flags() YS_OVERRIDE
 	{
-		std::string top_opt = "-auto-top";
-		std::string run_from, run_to;
-		std::string blif_file, edif_file;
-		bool flatten = true;
-		bool retime = false;
+		top_opt = "-auto-top";
+		part = "SLG46621V";
+		json_file = "";
+		flatten = true;
+		retime = false;
+	}
+
+	virtual void execute(std::vector<std::string> args, RTLIL::Design *design) YS_OVERRIDE
+	{
+		string run_from, run_to;
+		clear_flags();
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -125,12 +89,12 @@ struct SynthGreenPAK4Pass : public Pass {
 				top_opt = "-top " + args[++argidx];
 				continue;
 			}
-			if (args[argidx] == "-blif" && argidx+1 < args.size()) {
-				blif_file = args[++argidx];
+			if (args[argidx] == "-json" && argidx+1 < args.size()) {
+				json_file = args[++argidx];
 				continue;
 			}
-			if (args[argidx] == "-edif" && argidx+1 < args.size()) {
-				edif_file = args[++argidx];
+			if (args[argidx] == "-part" && argidx+1 < args.size()) {
+				part = args[++argidx];
 				continue;
 			}
 			if (args[argidx] == "-run" && argidx+1 < args.size()) {
@@ -139,10 +103,6 @@ struct SynthGreenPAK4Pass : public Pass {
 					break;
 				run_from = args[++argidx].substr(0, pos);
 				run_to = args[argidx].substr(pos+1);
-				continue;
-			}
-			if (args[argidx] == "-flatten") {
-				flatten = true;
 				continue;
 			}
 			if (args[argidx] == "-noflatten") {
@@ -160,70 +120,83 @@ struct SynthGreenPAK4Pass : public Pass {
 		if (!design->full_selection())
 			log_cmd_error("This comannd only operates on fully selected designs!\n");
 
-		bool active = run_from.empty();
+		if (part != "SLG46140V" && part != "SLG46620V" && part != "SLG46621V")
+			log_cmd_error("Invalid part name: '%s'\n", part.c_str());
 
-		log_header("Executing SYNTH_GREENPAK4 pass.\n");
+		log_header(design, "Executing SYNTH_GREENPAK4 pass.\n");
 		log_push();
 
-		if (check_label(active, run_from, run_to, "begin"))
+		run_script(design, run_from, run_to);
+
+		log_pop();
+	}
+
+	virtual void script() YS_OVERRIDE
+	{
+		if (check_label("begin"))
 		{
-			Pass::call(design, "read_verilog -lib +/greenpak4/cells_sim.v");
-			Pass::call(design, stringf("hierarchy -check %s", top_opt.c_str()));
+			run("read_verilog -lib +/greenpak4/cells_sim.v");
+			run(stringf("hierarchy -check %s", help_mode ? "-top <top>" : top_opt.c_str()));
 		}
 
-		if (flatten && check_label(active, run_from, run_to, "flatten"))
+		if (flatten && check_label("flatten", "(unless -noflatten)"))
 		{
-			Pass::call(design, "proc");
-			Pass::call(design, "flatten");
-			Pass::call(design, "tribuf -logic");
+			run("proc");
+			run("flatten");
+			run("tribuf -logic");
 		}
 
-		if (check_label(active, run_from, run_to, "coarse"))
+		if (check_label("coarse"))
 		{
-			Pass::call(design, "synth -run coarse");
+			run("synth -run coarse");
 		}
 
-		if (check_label(active, run_from, run_to, "fine"))
+		if (check_label("fine"))
 		{
-			Pass::call(design, "opt -fast -mux_undef -undriven -fine");
-			Pass::call(design, "memory_map");
-			Pass::call(design, "opt -undriven -fine");
-			Pass::call(design, "techmap");
-			Pass::call(design, "dfflibmap -prepare -liberty +/greenpak4/gp_dff.lib");
-			Pass::call(design, "opt -fast");
-			if (retime)
-				Pass::call(design, "abc -dff");
+			run("greenpak4_counters");
+			run("clean");
+			run("opt -fast -mux_undef -undriven -fine");
+			run("memory_map");
+			run("opt -undriven -fine");
+			run("techmap");
+			run("dfflibmap -prepare -liberty +/greenpak4/gp_dff.lib");
+			run("opt -fast");
+			if (retime || help_mode)
+				run("abc -dff", "(only if -retime)");
 		}
 
-		if (check_label(active, run_from, run_to, "map_luts"))
+		if (check_label("map_luts"))
 		{
-			Pass::call(design, "nlutmap -luts 0,8,16,2");
-			Pass::call(design, "clean");
+			if (help_mode || part == "SLG46140V") run("nlutmap -assert -luts 0,6,8,2", " (for -part SLG46140V)");
+			if (help_mode || part == "SLG46620V") run("nlutmap -assert -luts 2,8,16,2", "(for -part SLG46620V)");
+			if (help_mode || part == "SLG46621V") run("nlutmap -assert -luts 2,8,16,2", "(for -part SLG46621V)");
+			run("clean");
 		}
 
-		if (check_label(active, run_from, run_to, "map_cells"))
+		if (check_label("map_cells"))
 		{
-			Pass::call(design, "techmap -map +/greenpak4/cells_map.v");
-			Pass::call(design, "clean");
+			run("shregmap -tech greenpak4");
+			run("dfflibmap -liberty +/greenpak4/gp_dff.lib");
+			run("dffinit -ff GP_DFF Q INIT");
+			run("dffinit -ff GP_DFFR Q INIT");
+			run("dffinit -ff GP_DFFS Q INIT");
+			run("dffinit -ff GP_DFFSR Q INIT");
+			run("iopadmap -bits -inpad GP_IBUF OUT:IN -outpad GP_OBUF IN:OUT -inoutpad GP_OBUF OUT:IN -toutpad GP_OBUFT OE:IN:OUT -tinoutpad GP_IOBUF OE:OUT:IN:IO");
+			run("techmap -map +/greenpak4/cells_map.v");
+			run("clean");
 		}
 
-		if (check_label(active, run_from, run_to, "check"))
+		if (check_label("check"))
 		{
-			Pass::call(design, "hierarchy -check");
-			Pass::call(design, "stat");
-			Pass::call(design, "check -noinit");
+			run("hierarchy -check");
+			run("stat");
+			run("check -noinit");
 		}
 
-		if (check_label(active, run_from, run_to, "blif"))
+		if (check_label("json"))
 		{
-			if (!blif_file.empty())
-				Pass::call(design, stringf("write_blif -gates -attr -param %s", blif_file.c_str()));
-		}
-
-		if (check_label(active, run_from, run_to, "edif"))
-		{
-			if (!edif_file.empty())
-				Pass::call(design, stringf("write_edif %s", edif_file.c_str()));
+			if (!json_file.empty() || help_mode)
+				run(stringf("write_json %s", help_mode ? "<file-name>" : json_file.c_str()));
 		}
 
 		log_pop();

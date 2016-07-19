@@ -41,13 +41,14 @@ struct BlifDumperConfig
 	bool param_mode;
 	bool attr_mode;
 	bool blackbox_mode;
+	bool noalias_mode;
 
 	std::string buf_type, buf_in, buf_out;
 	std::map<RTLIL::IdString, std::pair<RTLIL::IdString, RTLIL::IdString>> unbuf_types;
 	std::string true_type, true_out, false_type, false_out, undef_type, undef_out;
 
 	BlifDumperConfig() : icells_mode(false), conn_mode(false), impltf_mode(false), gates_mode(false),
-			cname_mode(false), param_mode(false), attr_mode(false), blackbox_mode(false) { }
+			cname_mode(false), param_mode(false), attr_mode(false), blackbox_mode(false), noalias_mode(false) { }
 };
 
 struct BlifDumper
@@ -86,12 +87,13 @@ struct BlifDumper
 	}
 
 	vector<shared_str> cstr_buf;
+	pool<SigBit> cstr_bits_seen;
 
 	const char *cstr(RTLIL::IdString id)
 	{
 		std::string str = RTLIL::unescape_id(id);
 		for (size_t i = 0; i < str.size(); i++)
-			if (str[i] == '#' || str[i] == '=')
+			if (str[i] == '#' || str[i] == '=' || str[i] == '<' || str[i] == '>')
 				str[i] = '?';
 		cstr_buf.push_back(str);
 		return cstr_buf.back().c_str();
@@ -99,15 +101,17 @@ struct BlifDumper
 
 	const char *cstr(RTLIL::SigBit sig)
 	{
+		cstr_bits_seen.insert(sig);
+
 		if (sig.wire == NULL) {
-			if (sig == RTLIL::State::S0) return config->false_type == "-" ? config->false_out.c_str() : "$false";
-			if (sig == RTLIL::State::S1) return config->true_type == "-" ? config->true_out.c_str() : "$true";
-			return config->undef_type == "-" ? config->undef_out.c_str() : "$undef";
+			if (sig == RTLIL::State::S0) return config->false_type == "-" || config->false_type == "+" ? config->false_out.c_str() : "$false";
+			if (sig == RTLIL::State::S1) return config->true_type == "-" || config->true_type == "+" ? config->true_out.c_str() : "$true";
+			return config->undef_type == "-" || config->undef_type == "+" ? config->undef_out.c_str() : "$undef";
 		}
 
 		std::string str = RTLIL::unescape_id(sig.wire->name);
 		for (size_t i = 0; i < str.size(); i++)
-			if (str[i] == '#' || str[i] == '=')
+			if (str[i] == '#' || str[i] == '=' || str[i] == '<' || str[i] == '>')
 				str[i] = '?';
 
 		if (sig.wire->width != 1)
@@ -200,19 +204,25 @@ struct BlifDumper
 
 		if (!config->impltf_mode) {
 			if (!config->false_type.empty()) {
-				if (config->false_type != "-")
+				if (config->false_type == "+")
+					f << stringf(".names %s\n", config->false_out.c_str());
+				else if (config->false_type != "-")
 					f << stringf(".%s %s %s=$false\n", subckt_or_gate(config->false_type),
 							config->false_type.c_str(), config->false_out.c_str());
 			} else
 				f << stringf(".names $false\n");
 			if (!config->true_type.empty()) {
-				if (config->true_type != "-")
+				if (config->true_type == "+")
+					f << stringf(".names %s\n1\n", config->true_out.c_str());
+				else if (config->true_type != "-")
 					f << stringf(".%s %s %s=$true\n", subckt_or_gate(config->true_type),
 							config->true_type.c_str(), config->true_out.c_str());
 			} else
 				f << stringf(".names $true\n1\n");
 			if (!config->undef_type.empty()) {
-				if (config->undef_type != "-")
+				if (config->undef_type == "+")
+					f << stringf(".names %s\n", config->undef_out.c_str());
+				else if (config->undef_type != "-")
 					f << stringf(".%s %s %s=$undef\n", subckt_or_gate(config->undef_type),
 							config->undef_type.c_str(), config->undef_out.c_str());
 			} else
@@ -317,14 +327,25 @@ struct BlifDumper
 				continue;
 			}
 
+			if (!config->icells_mode && cell->type == "$_DLATCH_N_") {
+				f << stringf(".latch %s %s al %s%s\n", cstr(cell->getPort("\\D")), cstr(cell->getPort("\\Q")),
+						cstr(cell->getPort("\\E")), cstr_init(cell->getPort("\\Q")));
+				continue;
+			}
+
+			if (!config->icells_mode && cell->type == "$_DLATCH_P_") {
+				f << stringf(".latch %s %s ah %s%s\n", cstr(cell->getPort("\\D")), cstr(cell->getPort("\\Q")),
+						cstr(cell->getPort("\\E")), cstr_init(cell->getPort("\\Q")));
+				continue;
+			}
+
 			if (!config->icells_mode && cell->type == "$lut") {
 				f << stringf(".names");
 				auto &inputs = cell->getPort("\\A");
 				auto width = cell->parameters.at("\\WIDTH").as_int();
 				log_assert(inputs.size() == width);
-				for (int i = width-1; i >= 0; i--) {
+				for (int i = width-1; i >= 0; i--)
 					f << stringf(" %s", cstr(inputs.extract(i, 1)));
-				}
 				auto &output = cell->getPort("\\Y");
 				log_assert(output.size() == 1);
 				f << stringf(" %s", cstr(output));
@@ -337,6 +358,34 @@ struct BlifDumper
 						}
 						f << " 1\n";
 					}
+				continue;
+			}
+
+			if (!config->icells_mode && cell->type == "$sop") {
+				f << stringf(".names");
+				auto &inputs = cell->getPort("\\A");
+				auto width = cell->parameters.at("\\WIDTH").as_int();
+				auto depth = cell->parameters.at("\\DEPTH").as_int();
+				vector<State> table = cell->parameters.at("\\TABLE").bits;
+				while (GetSize(table) < 2*width*depth)
+					table.push_back(State::S0);
+				log_assert(inputs.size() == width);
+				for (int i = 0; i < width; i++)
+					f << stringf(" %s", cstr(inputs.extract(i, 1)));
+				auto &output = cell->getPort("\\Y");
+				log_assert(output.size() == 1);
+				f << stringf(" %s", cstr(output));
+				f << stringf("\n");
+				for (int i = 0; i < depth; i++) {
+					for (int j = 0; j < width; j++) {
+						bool pat0 = table.at(2*width*i + 2*j + 0) == State::S1;
+						bool pat1 = table.at(2*width*i + 2*j + 1) == State::S1;
+						if (pat0 && !pat1) f << "0";
+						else if (!pat0 && pat1) f << "1";
+						else f << "-";
+					}
+					f << " 1\n";
+				}
 				continue;
 			}
 
@@ -361,14 +410,21 @@ struct BlifDumper
 
 		for (auto &conn : module->connections())
 		for (int i = 0; i < conn.first.size(); i++)
-			if (config->conn_mode)
-				f << stringf(".conn %s %s\n", cstr(conn.second.extract(i, 1)), cstr(conn.first.extract(i, 1)));
-			else if (!config->buf_type.empty())
-				f << stringf(".%s %s %s=%s %s=%s\n", subckt_or_gate(config->buf_type), config->buf_type.c_str(), config->buf_in.c_str(), cstr(conn.second.extract(i, 1)),
-						config->buf_out.c_str(), cstr(conn.first.extract(i, 1)));
-			else
-				f << stringf(".names %s %s\n1 1\n", cstr(conn.second.extract(i, 1)), cstr(conn.first.extract(i, 1)));
+		{
+			SigBit lhs_bit = conn.first[i];
+			SigBit rhs_bit = conn.second[i];
 
+			if (config->noalias_mode && cstr_bits_seen.count(lhs_bit) == 0)
+				continue;
+
+			if (config->conn_mode)
+				f << stringf(".conn %s %s\n", cstr(rhs_bit), cstr(lhs_bit));
+			else if (!config->buf_type.empty())
+				f << stringf(".%s %s %s=%s %s=%s\n", subckt_or_gate(config->buf_type), config->buf_type.c_str(),
+						config->buf_in.c_str(), cstr(rhs_bit), config->buf_out.c_str(), cstr(lhs_bit));
+			else
+				f << stringf(".names %s %s\n1 1\n", cstr(rhs_bit), cstr(lhs_bit));
+		}
 
 		f << stringf(".end\n");
 	}
@@ -406,7 +462,14 @@ struct BlifBackend : public Backend {
 		log("        use the specified cell types to drive nets that are constant 1, 0, or\n");
 		log("        undefined. when '-' is used as <cell-type>, then <out-port> specifies\n");
 		log("        the wire name to be used for the constant signal and no cell driving\n");
-		log("        that wire is generated.\n");
+		log("        that wire is generated. when '+' is used as <cell-type>, then <out-port>\n");
+		log("        specifies the wire name to be used for the constant signal and a .names\n");
+		log("        statement is generated to drive the wire.\n");
+		log("\n");
+		log("    -noalias\n");
+		log("        if a net name is aliasing another net name, then by default a net\n");
+		log("        without fanout is created that is driven by the other net. This option\n");
+		log("        suppresses the generation of this nets without fanout.\n");
 		log("\n");
 		log("The following options can be useful when the generated file is not going to be\n");
 		log("read by a BLIF parser but a custom tool. It is recommended to not name the output\n");
@@ -448,7 +511,7 @@ struct BlifBackend : public Backend {
 		std::string false_type, false_out;
 		BlifDumperConfig config;
 
-		log_header("Executing BLIF backend.\n");
+		log_header(design, "Executing BLIF backend.\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -517,6 +580,10 @@ struct BlifBackend : public Backend {
 				config.impltf_mode = true;
 				continue;
 			}
+			if (args[argidx] == "-noalias") {
+				config.noalias_mode = true;
+				continue;
+			}
 			break;
 		}
 		extra_args(f, filename, args, argidx);
@@ -540,7 +607,7 @@ struct BlifBackend : public Backend {
 			if (module->processes.size() != 0)
 				log_error("Found unmapped processes in module %s: unmapped processes are not supported in BLIF backend!\n", RTLIL::id2cstr(module->name));
 			if (module->memories.size() != 0)
-				log_error("Found munmapped emories in module %s: unmapped memories are not supported in BLIF backend!\n", RTLIL::id2cstr(module->name));
+				log_error("Found unmapped memories in module %s: unmapped memories are not supported in BLIF backend!\n", RTLIL::id2cstr(module->name));
 
 			if (module->name == RTLIL::escape_id(top_module_name)) {
 				BlifDumper::dump(*f, module, design, config);

@@ -30,15 +30,6 @@
 #include "libs/sha1/sha1.h"
 #include "ast.h"
 
-#include <sstream>
-#include <stdarg.h>
-
-#if defined(__APPLE__)
-#  include <cmath>
-#else
-#  include <math.h>
-#endif
-
 YOSYS_NAMESPACE_BEGIN
 
 using namespace AST;
@@ -91,6 +82,7 @@ std::string AST::type2str(AstNodeType type)
 	X(AST_PREFIX)
 	X(AST_ASSERT)
 	X(AST_ASSUME)
+	X(AST_EXPECT)
 	X(AST_FCALL)
 	X(AST_TO_BITS)
 	X(AST_TO_SIGNED)
@@ -146,6 +138,8 @@ std::string AST::type2str(AstNodeType type)
 	X(AST_ASSIGN_LE)
 	X(AST_CASE)
 	X(AST_COND)
+	X(AST_CONDX)
+	X(AST_CONDZ)
 	X(AST_DEFAULT)
 	X(AST_FOR)
 	X(AST_WHILE)
@@ -158,6 +152,7 @@ std::string AST::type2str(AstNodeType type)
 	X(AST_POSEDGE)
 	X(AST_NEGEDGE)
 	X(AST_EDGE)
+	X(AST_PACKAGE)
 #undef X
 	default:
 		log_abort();
@@ -501,7 +496,12 @@ void AstNode::dumpVlog(FILE *f, std::string indent)
 		break;
 
 	case AST_CASE:
-		fprintf(f, "%s" "case (", indent.c_str());
+		if (!children.empty() && children[0]->type == AST_CONDX)
+			fprintf(f, "%s" "casex (", indent.c_str());
+		else if (!children.empty() && children[0]->type == AST_CONDZ)
+			fprintf(f, "%s" "casez (", indent.c_str());
+		else
+			fprintf(f, "%s" "case (", indent.c_str());
 		children[0]->dumpVlog(f, "");
 		fprintf(f, ")\n");
 		for (size_t i = 1; i < children.size(); i++) {
@@ -512,6 +512,8 @@ void AstNode::dumpVlog(FILE *f, std::string indent)
 		break;
 
 	case AST_COND:
+	case AST_CONDX:
+	case AST_CONDZ:
 		for (auto child : children) {
 			if (child->type == AST_BLOCK) {
 				fprintf(f, ":\n");
@@ -996,6 +998,14 @@ void AST::process(RTLIL::Design *design, AstNode *ast, bool dump_ast1, bool dump
 			for (auto n : global_decls)
 				(*it)->children.push_back(n->clone());
 
+			for (auto n : design->verilog_packages){
+				for (auto o : n->children) {
+					AstNode *cloned_node = o->clone();
+					cloned_node->str = n->str + std::string("::") + cloned_node->str.substr(1);
+					(*it)->children.push_back(cloned_node);
+				}
+			}
+
 			if (flag_icells && (*it)->str.substr(0, 2) == "\\$")
 				(*it)->str = (*it)->str.substr(1);
 
@@ -1012,6 +1022,9 @@ void AST::process(RTLIL::Design *design, AstNode *ast, bool dump_ast1, bool dump
 			}
 
 			design->add(process_module(*it, defer));
+		}
+		else if ((*it)->type == AST_PACKAGE){
+			design->verilog_packages.push_back((*it)->clone());
 		}
 		else
 			global_decls.push_back(*it);
@@ -1033,7 +1046,7 @@ RTLIL::IdString AstModule::derive(RTLIL::Design *design, dict<RTLIL::IdString, R
 	if (stripped_name.substr(0, 9) == "$abstract")
 		stripped_name = stripped_name.substr(9);
 
-	log_header("Executing AST frontend in derive mode using pre-parsed AST for module `%s'.\n", stripped_name.c_str());
+	log_header(design, "Executing AST frontend in derive mode using pre-parsed AST for module `%s'.\n", stripped_name.c_str());
 
 	current_ast = NULL;
 	flag_dump_ast1 = false;

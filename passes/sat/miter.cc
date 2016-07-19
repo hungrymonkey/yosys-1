@@ -32,7 +32,7 @@ void create_miter_equiv(struct Pass *that, std::vector<std::string> args, RTLIL:
 	bool flag_make_assert = false;
 	bool flag_flatten = false;
 
-	log_header("Executing MITER pass (creating miter circuit).\n");
+	log_header(design, "Executing MITER pass (creating miter circuit).\n");
 
 	size_t argidx;
 	for (argidx = 2; argidx < args.size(); argidx++)
@@ -254,7 +254,7 @@ void create_miter_equiv(struct Pass *that, std::vector<std::string> args, RTLIL:
 
 	if (flag_flatten) {
 		log_push();
-		Pass::call_on_module(design, miter_module, "flatten; opt_const -keepdc -undriven;;");
+		Pass::call_on_module(design, miter_module, "flatten; opt_expr -keepdc -undriven;;");
 		log_pop();
 	}
 }
@@ -264,7 +264,7 @@ void create_miter_assert(struct Pass *that, std::vector<std::string> args, RTLIL
 	bool flag_make_outputs = false;
 	bool flag_flatten = false;
 
-	log_header("Executing MITER pass (creating miter circuit).\n");
+	log_header(design, "Executing MITER pass (creating miter circuit).\n");
 
 	size_t argidx;
 	for (argidx = 2; argidx < args.size(); argidx++)
@@ -327,7 +327,7 @@ void create_miter_assert(struct Pass *that, std::vector<std::string> args, RTLIL
 
 	if (flag_flatten) {
 		log_push();
-		Pass::call_on_module(design, module, "opt_const -keepdc -undriven;;");
+		Pass::call_on_module(design, module, "opt_expr -keepdc -undriven;;");
 		log_pop();
 	}
 }
@@ -361,7 +361,7 @@ struct MiterPass : public Pass {
 		log("        also create an 'assert' cell that checks if trigger is always low.\n");
 		log("\n");
 		log("    -flatten\n");
-		log("        call 'flatten; opt_const -keepdc -undriven;;' on the miter circuit.\n");
+		log("        call 'flatten; opt_expr -keepdc -undriven;;' on the miter circuit.\n");
 		log("\n");
 		log("\n");
 		log("    miter -assert [options] module [miter_name]\n");
@@ -375,7 +375,7 @@ struct MiterPass : public Pass {
 		log("        keep module output ports.\n");
 		log("\n");
 		log("    -flatten\n");
-		log("        call 'flatten; opt_const -keepdc -undriven;;' on the miter circuit.\n");
+		log("        call 'flatten; opt_expr -keepdc -undriven;;' on the miter circuit.\n");
 		log("\n");
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)

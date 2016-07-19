@@ -65,6 +65,7 @@ namespace AST
 		AST_PREFIX,
 		AST_ASSERT,
 		AST_ASSUME,
+		AST_EXPECT,
 
 		AST_FCALL,
 		AST_TO_BITS,
@@ -122,6 +123,8 @@ namespace AST
 		AST_ASSIGN_LE,
 		AST_CASE,
 		AST_COND,
+		AST_CONDX,
+		AST_CONDZ,
 		AST_DEFAULT,
 		AST_FOR,
 		AST_WHILE,
@@ -135,7 +138,9 @@ namespace AST
 
 		AST_POSEDGE,
 		AST_NEGEDGE,
-		AST_EDGE
+		AST_EDGE,
+
+		AST_PACKAGE
 	};
 
 	// convert an node type to a string (e.g. for debug output)
@@ -217,6 +222,7 @@ namespace AST
 				dict<AstNode*, uint32_t> &mem2reg_flags, dict<AstNode*, uint32_t> &proc_flags, uint32_t &status_flags);
 		bool mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod, AstNode *block);
 		bool mem2reg_check(pool<AstNode*> &mem2reg_set);
+		void mem2reg_remove(pool<AstNode*> &mem2reg_set, vector<AstNode*> &delnodes);
 		void meminfo(int &mem_width, int &mem_size, int &addr_bits);
 
 		// additional functionality for evaluating constant functions

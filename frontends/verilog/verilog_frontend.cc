@@ -159,6 +159,9 @@ struct VerilogFrontend : public Frontend {
 		log("recommended to use a simulator (for example Icarus Verilog) for checking\n");
 		log("the syntax of the code, rather than to rely on read_verilog for that.\n");
 		log("\n");
+		log("See the Yosys README file for a list of non-standard Verilog features\n");
+		log("supported by the Yosys Verilog front-end.\n");
+		log("\n");
 	}
 	virtual void execute(std::istream *&f, std::string filename, std::vector<std::string> args, RTLIL::Design *design)
 	{
@@ -186,7 +189,7 @@ struct VerilogFrontend : public Frontend {
 		formal_mode = false;
 		default_nettype_wire = true;
 
-		log_header("Executing Verilog-2005 frontend.\n");
+		log_header(design, "Executing Verilog-2005 frontend.\n");
 
 		args.insert(args.begin()+1, verilog_defaults.begin(), verilog_defaults.end());
 

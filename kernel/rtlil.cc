@@ -304,6 +304,8 @@ RTLIL::Design::~Design()
 {
 	for (auto it = modules_.begin(); it != modules_.end(); ++it)
 		delete it->second;
+	for (auto n : verilog_packages)
+		delete n;
 }
 
 RTLIL::ObjRange<RTLIL::Module*> RTLIL::Design::modules()
@@ -845,6 +847,15 @@ namespace {
 				return;
 			}
 
+			if (cell->type == "$sop") {
+				param("\\DEPTH");
+				param("\\TABLE");
+				port("\\A", param("\\WIDTH"));
+				port("\\Y", 1);
+				check_expected();
+				return;
+			}
+
 			if (cell->type == "$sr") {
 				param_bool("\\SET_POLARITY");
 				param_bool("\\CLR_POLARITY");
@@ -1006,14 +1017,7 @@ namespace {
 				return;
 			}
 
-			if (cell->type == "$assert") {
-				port("\\A", 1);
-				port("\\EN", 1);
-				check_expected();
-				return;
-			}
-
-			if (cell->type == "$assume") {
+			if (cell->type.in("$assert", "$assume", "$expect")) {
 				port("\\A", 1);
 				port("\\EN", 1);
 				check_expected();
@@ -1784,6 +1788,22 @@ RTLIL::Cell* RTLIL::Module::addAssert(RTLIL::IdString name, RTLIL::SigSpec sig_a
 	return cell;
 }
 
+RTLIL::Cell* RTLIL::Module::addAssume(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en)
+{
+	RTLIL::Cell *cell = addCell(name, "$assume");
+	cell->setPort("\\A", sig_a);
+	cell->setPort("\\EN", sig_en);
+	return cell;
+}
+
+RTLIL::Cell* RTLIL::Module::addExpect(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en)
+{
+	RTLIL::Cell *cell = addCell(name, "$expect");
+	cell->setPort("\\A", sig_a);
+	cell->setPort("\\EN", sig_en);
+	return cell;
+}
+
 RTLIL::Cell* RTLIL::Module::addEquiv(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_b, RTLIL::SigSpec sig_y)
 {
 	RTLIL::Cell *cell = addCell(name, "$equiv");
@@ -2133,7 +2153,7 @@ void RTLIL::Cell::fixup_parameters(bool set_a_signed, bool set_b_signed)
 		return;
 	}
 
-	if (type == "$lut") {
+	if (type == "$lut" || type == "$sop") {
 		parameters["\\WIDTH"] = GetSize(connections_["\\A"]);
 		return;
 	}

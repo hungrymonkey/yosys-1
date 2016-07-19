@@ -64,7 +64,7 @@ struct keep_cache_t
 
 	bool query(Cell *cell)
 	{
-		if (cell->type.in("$memwr", "$meminit", "$assert", "$assume"))
+		if (cell->type.in("$memwr", "$meminit", "$assert", "$assume", "$expect"))
 			return true;
 
 		if (cell->has_keep_attr())
@@ -155,6 +155,9 @@ bool compare_signals(RTLIL::SigBit &s1, RTLIL::SigBit &s2, SigPool &regs, SigPoo
 
 	if (w1->port_input != w2->port_input)
 		return w2->port_input;
+
+	if ((w1->port_input && w1->port_output) != (w2->port_input && w2->port_output))
+		return !(w2->port_input && w2->port_output);
 
 	if (w1->name[0] == '\\' && w2->name[0] == '\\') {
 		if (regs.check_any(s1) != regs.check_any(s2))
@@ -380,7 +383,7 @@ struct OptCleanPass : public Pass {
 	{
 		bool purge_mode = false;
 
-		log_header("Executing OPT_CLEAN pass (remove unused cells and wires).\n");
+		log_header(design, "Executing OPT_CLEAN pass (remove unused cells and wires).\n");
 		log_push();
 
 		size_t argidx;

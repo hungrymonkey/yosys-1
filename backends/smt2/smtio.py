@@ -22,6 +22,15 @@ import subprocess
 from select import select
 from time import time
 
+class smtmodinfo:
+    def __init__(self):
+        self.inputs = set()
+        self.outputs = set()
+        self.registers = set()
+        self.wires = set()
+        self.wsize = dict()
+        self.cells = dict()
+
 class smtio:
     def __init__(self, solver=None, debug_print=None, debug_file=None, timeinfo=None, opts=None):
         if opts is not None:
@@ -63,6 +72,10 @@ class smtio:
         self.p = subprocess.Popen(popen_vargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.start_time = time()
 
+        self.modinfo = dict()
+        self.curmod = None
+        self.topmod = None
+
     def setup(self, logic="ALL", info=None):
         self.write("(set-logic %s)" % logic)
         if info is not None:
@@ -83,6 +96,49 @@ class smtio:
             self.debug_file.flush()
         self.p.stdin.write(bytes(stmt + "\n", "ascii"))
         self.p.stdin.flush()
+
+    def info(self, stmt):
+        if not stmt.startswith("; yosys-smt2-"):
+            return
+
+        fields = stmt.split()
+
+        if fields[1] == "yosys-smt2-module":
+            self.curmod = fields[2]
+            self.modinfo[self.curmod] = smtmodinfo()
+
+        if fields[1] == "yosys-smt2-cell":
+            self.modinfo[self.curmod].cells[fields[3]] = fields[2]
+
+        if fields[1] == "yosys-smt2-topmod":
+            self.topmod = fields[2]
+
+        if fields[1] == "yosys-smt2-input":
+            self.modinfo[self.curmod].inputs.add(fields[2])
+            self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
+
+        if fields[1] == "yosys-smt2-output":
+            self.modinfo[self.curmod].outputs.add(fields[2])
+            self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
+
+        if fields[1] == "yosys-smt2-register":
+            self.modinfo[self.curmod].registers.add(fields[2])
+            self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
+
+        if fields[1] == "yosys-smt2-wire":
+            self.modinfo[self.curmod].wires.add(fields[2])
+            self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
+
+    def hiernets(self, top):
+        def hiernets_worker(nets, mod, cursor):
+            for netname in sorted(self.modinfo[mod].wsize.keys()):
+                nets.append(cursor + [netname])
+            for cellname, celltype in sorted(self.modinfo[mod].cells.items()):
+                hiernets_worker(nets, celltype, cursor + [cellname])
+
+        nets = list()
+        hiernets_worker(nets, top, [])
+        return nets
 
     def read(self):
         stmt = []
@@ -237,19 +293,32 @@ class smtio:
         self.write("(get-value (%s))" % (expr))
         return self.parse(self.read())[0][1]
 
-    def get_net(self, mod_name, net_name, state_name):
-        return self.get("(|%s_n %s| %s)" % (mod_name, net_name, state_name))
+    def get_net(self, mod_name, net_path, state_name):
+        def mkexpr(mod, base, path):
+            if len(path) == 1:
+                assert mod in self.modinfo
+                assert path[0] in self.modinfo[mod].wsize
+                return "(|%s_n %s| %s)" % (mod, path[0], base)
 
-    def get_net_bool(self, mod_name, net_name, state_name):
-        v = self.get_net(mod_name, net_name, state_name)
+            assert mod in self.modinfo
+            assert path[0] in self.modinfo[mod].cells
+
+            nextmod = self.modinfo[mod].cells[path[0]]
+            nextbase = "(|%s_h %s| %s)" % (mod, path[0], base)
+            return mkexpr(nextmod, nextbase, path[1:])
+
+        return self.get(mkexpr(mod_name, state_name, net_path))
+
+    def get_net_bool(self, mod_name, net_path, state_name):
+        v = self.get_net(mod_name, net_path, state_name)
         assert v in ["true", "false"]
         return 1 if v == "true" else 0
 
-    def get_net_hex(self, mod_name, net_name, state_name):
-        return self.bv2hex(self.get_net(mod_name, net_name, state_name))
+    def get_net_hex(self, mod_name, net_path, state_name):
+        return self.bv2hex(self.get_net(mod_name, net_path, state_name))
 
-    def get_net_bin(self, mod_name, net_name, state_name):
-        return self.bv2bin(self.get_net(mod_name, net_name, state_name))
+    def get_net_bin(self, mod_name, net_path, state_name):
+        return self.bv2bin(self.get_net(mod_name, net_path, state_name))
 
     def wait(self):
         self.p.wait()
@@ -299,24 +368,35 @@ class mkvcd:
         self.t = -1
         self.nets = dict()
 
-    def add_net(self, name, width):
+    def add_net(self, path, width):
+        path = tuple(path)
         assert self.t == -1
         key = "n%d" % len(self.nets)
-        self.nets[name] = (key, width)
+        self.nets[path] = (key, width)
 
-    def set_net(self, name, bits):
-        assert name in self.nets
+    def set_net(self, path, bits):
+        path = tuple(path)
         assert self.t >= 0
-        print("b%s %s" % (bits, self.nets[name][0]), file=self.f)
+        assert path in self.nets
+        print("b%s %s" % (bits, self.nets[path][0]), file=self.f)
 
     def set_time(self, t):
         assert t >= self.t
         if t != self.t:
             if self.t == -1:
                 print("$var event 1 ! smt_clock $end", file=self.f)
-                for name in sorted(self.nets):
-                    key, width = self.nets[name]
-                    print("$var wire %d %s %s $end" % (width, key, name), file=self.f)
+                scope = []
+                for path in sorted(self.nets):
+                    while len(scope)+1 > len(path) or (len(scope) > 0 and scope[-1] != path[len(scope)-1]):
+                        print("$upscope $end", file=self.f)
+                        scope = scope[:-1]
+                    while len(scope)+1 < len(path):
+                        print("$scope module %s $end" % path[len(scope)], file=self.f)
+                        scope.append(path[len(scope)-1])
+                    key, width = self.nets[path]
+                    print("$var wire %d %s %s $end" % (width, key, path[-1]), file=self.f)
+                for i in range(len(scope)):
+                    print("$upscope $end", file=self.f)
                 print("$enddefinitions $end", file=self.f)
             self.t = t
             assert self.t >= 0

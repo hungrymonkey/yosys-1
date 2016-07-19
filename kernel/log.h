@@ -47,6 +47,8 @@ struct log_cmd_error_exception { };
 
 extern std::vector<FILE*> log_files;
 extern std::vector<std::ostream*> log_streams;
+extern std::map<std::string, std::set<std::string>> log_hdump;
+extern bool log_hdump_all;
 extern FILE *log_errfile;
 extern SHA1 *log_hasher;
 
@@ -58,12 +60,12 @@ extern int log_verbose_level;
 extern string log_last_error;
 
 void logv(const char *format, va_list ap);
-void logv_header(const char *format, va_list ap);
+void logv_header(RTLIL::Design *design, const char *format, va_list ap);
 void logv_warning(const char *format, va_list ap);
 YS_NORETURN void logv_error(const char *format, va_list ap) YS_ATTRIBUTE(noreturn);
 
 void log(const char *format, ...)  YS_ATTRIBUTE(format(printf, 1, 2));
-void log_header(const char *format, ...) YS_ATTRIBUTE(format(printf, 1, 2));
+void log_header(RTLIL::Design *design, const char *format, ...) YS_ATTRIBUTE(format(printf, 2, 3));
 void log_warning(const char *format, ...) YS_ATTRIBUTE(format(printf, 1, 2));
 YS_NORETURN void log_error(const char *format, ...) YS_ATTRIBUTE(format(printf, 1, 2), noreturn);
 YS_NORETURN void log_cmd_error(const char *format, ...) YS_ATTRIBUTE(format(printf, 1, 2), noreturn);
@@ -161,11 +163,13 @@ struct PerformanceTimer
 	}
 
 	static int64_t query() {
-#if defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0)
+#  if _WIN32
+		return 0;
+#  elif defined(_POSIX_TIMERS) && (_POSIX_TIMERS > 0)
 		struct timespec ts;
 		clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
 		return int64_t(ts.tv_sec)*1000000000 + ts.tv_nsec;
-#elif defined(RUSAGE_SELF)
+#  elif defined(RUSAGE_SELF)
 		struct rusage rusage;
 		int64_t t;
 		if (getrusage(RUSAGE_SELF, &rusage) == -1) {
@@ -175,11 +179,9 @@ struct PerformanceTimer
 		t = 1000000000ULL * (int64_t) rusage.ru_utime.tv_sec + (int64_t) rusage.ru_utime.tv_usec * 1000ULL;
 		t += 1000000000ULL * (int64_t) rusage.ru_stime.tv_sec + (int64_t) rusage.ru_stime.tv_usec * 1000ULL;
 		return t;
-#elif _WIN32
-		return 0;
-#else
-	#error Dont know how to measure per-process CPU time. Need alternative method (times()/clocks()/gettimeofday()?).
-#endif
+#  else
+#    error Dont know how to measure per-process CPU time. Need alternative method (times()/clocks()/gettimeofday()?).
+#  endif
 	}
 
 	void reset() {
@@ -229,6 +231,32 @@ static inline void log_dump_val_worker(PerformanceTimer p) { log("%f seconds", p
 static inline void log_dump_args_worker(const char *p YS_ATTRIBUTE(unused)) { log_assert(*p == 0); }
 void log_dump_val_worker(RTLIL::IdString v);
 void log_dump_val_worker(RTLIL::SigSpec v);
+
+template<typename K, typename T, typename OPS>
+static inline void log_dump_val_worker(dict<K, T, OPS> &v) {
+	log("{");
+	bool first = true;
+	for (auto &it : v) {
+		log(first ? " " : ", ");
+		log_dump_val_worker(it.first);
+		log(": ");
+		log_dump_val_worker(it.second);
+		first = false;
+	}
+	log(" }");
+}
+
+template<typename K, typename OPS>
+static inline void log_dump_val_worker(pool<K, OPS> &v) {
+	log("{");
+	bool first = true;
+	for (auto &it : v) {
+		log(first ? " " : ", ");
+		log_dump_val_worker(it);
+		first = false;
+	}
+	log(" }");
+}
 
 template<typename T>
 static inline void log_dump_val_worker(T *ptr) { log("%p", ptr); }

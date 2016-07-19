@@ -102,6 +102,7 @@ static void free_attr(std::map<std::string, AstNode*> *al)
 %token <string> TOK_STRING TOK_ID TOK_CONST TOK_REALVAL TOK_PRIMITIVE
 %token ATTR_BEGIN ATTR_END DEFATTR_BEGIN DEFATTR_END
 %token TOK_MODULE TOK_ENDMODULE TOK_PARAMETER TOK_LOCALPARAM TOK_DEFPARAM
+%token TOK_PACKAGE TOK_ENDPACKAGE TOK_PACKAGESEP
 %token TOK_INPUT TOK_OUTPUT TOK_INOUT TOK_WIRE TOK_REG
 %token TOK_INTEGER TOK_SIGNED TOK_ASSIGN TOK_ALWAYS TOK_INITIAL
 %token TOK_BEGIN TOK_END TOK_IF TOK_ELSE TOK_FOR TOK_WHILE TOK_REPEAT
@@ -111,7 +112,8 @@ static void free_attr(std::map<std::string, AstNode*> *al)
 %token TOK_GENERATE TOK_ENDGENERATE TOK_GENVAR TOK_REAL
 %token TOK_SYNOPSYS_FULL_CASE TOK_SYNOPSYS_PARALLEL_CASE
 %token TOK_SUPPLY0 TOK_SUPPLY1 TOK_TO_SIGNED TOK_TO_UNSIGNED
-%token TOK_POS_INDEXED TOK_NEG_INDEXED TOK_ASSERT TOK_ASSUME TOK_PROPERTY
+%token TOK_POS_INDEXED TOK_NEG_INDEXED TOK_ASSERT TOK_ASSUME
+%token TOK_EXPECT TOK_PROPERTY
 
 %type <ast> range range_or_multirange  non_opt_range non_opt_multirange range_or_signed_int
 %type <ast> wire_type expr basic_expr concat_list rvalue lvalue lvalue_concat_list
@@ -155,6 +157,7 @@ design:
 	task_func_decl design |
 	param_decl design |
 	localparam_decl design |
+	package design |
 	/* empty */;
 
 attr:
@@ -210,6 +213,14 @@ attr_assign:
 
 hierarchical_id:
 	TOK_ID {
+		$$ = $1;
+	} |
+	hierarchical_id TOK_PACKAGESEP TOK_ID {
+		if ($3->substr(0, 1) == "\\")
+			*$1 += "::" + $3->substr(1);
+		else
+			*$1 += "::" + *$3;
+		delete $3;
 		$$ = $1;
 	} |
 	hierarchical_id '.' TOK_ID {
@@ -301,7 +312,7 @@ module_arg:
 			node->children.push_back($3);
 		if (!node->is_input && !node->is_output)
 			frontend_verilog_yyerror("Module port `%s' is neither input nor output.", $4->c_str());
-		if (node->is_reg && node->is_input && !node->is_output)
+		if (node->is_reg && node->is_input && !node->is_output && !sv_mode)
 			frontend_verilog_yyerror("Input port `%s' is declared as register.", $4->c_str());
 		ast_stack.back()->children.push_back(node);
 		append_attr(node, $1);
@@ -310,6 +321,25 @@ module_arg:
 	'.' '.' '.' {
 		do_not_require_port_stubs = true;
 	};
+
+package:
+	attr TOK_PACKAGE TOK_ID {
+		AstNode *mod = new AstNode(AST_PACKAGE);
+		ast_stack.back()->children.push_back(mod);
+		ast_stack.push_back(mod);
+		current_ast_mod = mod;
+		mod->str = *$3;
+		append_attr(mod, $1);
+	} ';' package_body TOK_ENDPACKAGE {
+		ast_stack.pop_back();
+		current_ast_mod = NULL;
+	};
+
+package_body:
+	package_body package_body_stmt |;
+
+package_body_stmt:
+	localparam_decl;
 
 non_opt_delay:
 	'#' '(' expr ')' { delete $3; } |
@@ -735,7 +765,7 @@ wire_name:
 			if (port_stubs.count(*$1) != 0) {
 				if (!node->is_input && !node->is_output)
 					frontend_verilog_yyerror("Module port `%s' is neither input nor output.", $1->c_str());
-				if (node->is_reg && node->is_input && !node->is_output)
+				if (node->is_reg && node->is_input && !node->is_output && !sv_mode)
 					frontend_verilog_yyerror("Input port `%s' is declared as register.", $1->c_str());
 				node->port_id = port_stubs[*$1];
 				port_stubs.erase(*$1);
@@ -936,6 +966,9 @@ assert:
 	} |
 	TOK_ASSUME '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $3));
+	} |
+	TOK_EXPECT '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_EXPECT, $3));
 	};
 
 assert_property:
@@ -944,6 +977,9 @@ assert_property:
 	} |
 	TOK_ASSUME TOK_PROPERTY '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $4));
+	} |
+	TOK_EXPECT TOK_PROPERTY '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_EXPECT, $4));
 	};
 
 simple_behavioral_stmt:
@@ -1094,7 +1130,9 @@ case_body:
 
 case_item:
 	{
-		AstNode *node = new AstNode(AST_COND);
+		AstNode *node = new AstNode(
+				case_type_stack.size() && case_type_stack.back() == 'x' ? AST_CONDX :
+				case_type_stack.size() && case_type_stack.back() == 'z' ? AST_CONDZ : AST_COND);
 		ast_stack.back()->children.push_back(node);
 		ast_stack.push_back(node);
 	} case_select {
@@ -1114,7 +1152,9 @@ gen_case_body:
 
 gen_case_item:
 	{
-		AstNode *node = new AstNode(AST_COND);
+		AstNode *node = new AstNode(
+				case_type_stack.size() && case_type_stack.back() == 'x' ? AST_CONDX :
+				case_type_stack.size() && case_type_stack.back() == 'z' ? AST_CONDZ : AST_COND);
 		ast_stack.back()->children.push_back(node);
 		ast_stack.push_back(node);
 	} case_select {

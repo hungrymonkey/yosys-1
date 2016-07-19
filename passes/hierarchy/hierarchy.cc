@@ -261,7 +261,7 @@ bool expand_module(RTLIL::Design *design, RTLIL::Module *module, bool flag_check
 	return did_something;
 }
 
-void hierarchy_worker(RTLIL::Design *design, std::set<RTLIL::Module*> &used, RTLIL::Module *mod, int indent)
+void hierarchy_worker(RTLIL::Design *design, std::set<RTLIL::Module*, IdString::compare_ptr_by_name<Module>> &used, RTLIL::Module *mod, int indent)
 {
 	if (used.count(mod) > 0)
 		return;
@@ -287,7 +287,7 @@ void hierarchy_worker(RTLIL::Design *design, std::set<RTLIL::Module*> &used, RTL
 
 void hierarchy_clean(RTLIL::Design *design, RTLIL::Module *top, bool purge_lib)
 {
-	std::set<RTLIL::Module*> used;
+	std::set<RTLIL::Module*, IdString::compare_ptr_by_name<Module>> used;
 	hierarchy_worker(design, used, top, 0);
 
 	std::vector<RTLIL::Module*> del_modules;
@@ -297,8 +297,6 @@ void hierarchy_clean(RTLIL::Design *design, RTLIL::Module *top, bool purge_lib)
 
 	int del_counter = 0;
 	for (auto mod : del_modules) {
-		if (mod->name.substr(0, 9) == "$abstract")
-			continue;
 		if (!purge_lib && mod->get_bool_attribute("\\blackbox"))
 			continue;
 		log("Removing unused module `%s'.\n", mod->name.c_str());
@@ -315,7 +313,7 @@ bool set_keep_assert(std::map<RTLIL::Module*, bool> &cache, RTLIL::Module *mod)
 	if (cache.count(mod) == 0)
 		for (auto c : mod->cells()) {
 			RTLIL::Module *m = mod->design->module(c->type);
-			if ((m != nullptr && set_keep_assert(cache, m)) || c->type.in("$assert", "$assume"))
+			if ((m != nullptr && set_keep_assert(cache, m)) || c->type.in("$assert", "$assume", "$expect"))
 				return cache[mod] = true;
 		}
 	return cache[mod];
@@ -398,7 +396,7 @@ struct HierarchyPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing HIERARCHY pass (managing design hierarchy).\n");
+		log_header(design, "Executing HIERARCHY pass (managing design hierarchy).\n");
 
 		bool flag_check = false;
 		bool purge_lib = false;
@@ -508,7 +506,7 @@ struct HierarchyPass : public Pass {
 					top_mod = mod_it.second;
 
 		if (top_mod == nullptr && auto_top_mode) {
-			log_header("Finding top of design hierarchy..\n");
+			log_header(design, "Finding top of design hierarchy..\n");
 			dict<Module*, int> db;
 			for (Module *mod : design->selected_modules()) {
 				int score = find_top_mod_score(design, mod, db);
@@ -525,9 +523,9 @@ struct HierarchyPass : public Pass {
 		{
 			did_something = false;
 
-			std::set<RTLIL::Module*> used_modules;
+			std::set<RTLIL::Module*, IdString::compare_ptr_by_name<Module>> used_modules;
 			if (top_mod != NULL) {
-				log_header("Analyzing design hierarchy..\n");
+				log_header(design, "Analyzing design hierarchy..\n");
 				hierarchy_worker(design, used_modules, top_mod, 0);
 			} else {
 				for (auto mod : design->modules())
@@ -541,7 +539,7 @@ struct HierarchyPass : public Pass {
 		}
 
 		if (top_mod != NULL) {
-			log_header("Analyzing design hierarchy..\n");
+			log_header(design, "Analyzing design hierarchy..\n");
 			hierarchy_clean(design, top_mod, purge_lib);
 		}
 

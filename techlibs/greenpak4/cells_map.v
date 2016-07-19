@@ -1,20 +1,35 @@
-module  \$_DFF_P_ (input D, C, output Q);
-	GP_DFF _TECHMAP_REPLACE_ (
+module GP_DFFS(input D, CLK, nSET, output reg Q);
+	parameter [0:0] INIT = 1'bx;
+	GP_DFFSR #(
+		.INIT(INIT),
+		.SRMODE(1'b1),
+	) _TECHMAP_REPLACE_ (
 		.D(D),
-		.Q(Q),
-		.CLK(C),
-		.nRSTZ(1'b1),
-		.nSETZ(1'b1)
+		.CLK(CLK),
+		.nSR(nSET),
+		.Q(Q)
 	);
 endmodule
 
-module  \$_DFFSR_PNN_ (input C, S, R, D, output Q);
-	GP_DFF _TECHMAP_REPLACE_ (
+module GP_DFFR(input D, CLK, nRST, output reg Q);
+	parameter [0:0] INIT = 1'bx;
+	GP_DFFSR #(
+		.INIT(INIT),
+		.SRMODE(1'b0),
+	) _TECHMAP_REPLACE_ (
 		.D(D),
-		.Q(Q),
-		.CLK(C),
-		.nRSTZ(R),
-		.nSETZ(S)
+		.CLK(CLK),
+		.nSR(nRST),
+		.Q(Q)
+	);
+endmodule
+
+module GP_OBUFT(input IN, input OE, output OUT);
+	GP_IOBUF _TECHMAP_REPLACE_ (
+		.IN(IN),
+		.OE(OE),
+		.IO(OUT),
+		.OUT()
 	);
 endmodule
 
@@ -27,8 +42,13 @@ module \$lut (A, Y);
 
   generate
     if (WIDTH == 1) begin
-      GP_2LUT #(.INIT({2'b00, LUT})) _TECHMAP_REPLACE_ (.OUT(Y),
-      	.IN0(A[0]), .IN1(1'b0));
+		if(LUT == 2'b01) begin
+			GP_INV _TECHMAP_REPLACE_ (.OUT(Y), .IN(A[0]) );
+		end
+		else begin
+			GP_2LUT #(.INIT({2'b00, LUT})) _TECHMAP_REPLACE_ (.OUT(Y),
+				.IN0(A[0]), .IN1(1'b0));
+		end
     end else
     if (WIDTH == 2) begin
       GP_2LUT #(.INIT(LUT)) _TECHMAP_REPLACE_ (.OUT(Y),

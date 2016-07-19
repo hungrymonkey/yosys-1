@@ -68,7 +68,7 @@ struct OptMuxtreeWorker
 	OptMuxtreeWorker(RTLIL::Design *design, RTLIL::Module *module) :
 			design(design), module(module), assign_map(module), removed_count(0)
 	{
-		log("Running muxtree optimizier on module %s..\n", module->name.c_str());
+		log("Running muxtree optimizer on module %s..\n", module->name.c_str());
 
 		log("  Creating internal representation of mux trees.\n");
 
@@ -464,7 +464,7 @@ struct OptMuxtreePass : public Pass {
 	}
 	virtual void execute(vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing OPT_MUXTREE pass (detect dead branches in mux trees).\n");
+		log_header(design, "Executing OPT_MUXTREE pass (detect dead branches in mux trees).\n");
 		extra_args(args, 1, design);
 
 		int total_count = 0;

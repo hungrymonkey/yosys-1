@@ -338,12 +338,14 @@ struct AST_INTERNAL::ProcessGenerator
 		case AST_CASE:
 			for (auto child : ast->children)
 				if (child != ast->children[0]) {
-					log_assert(child->type == AST_COND);
+					log_assert(child->type == AST_COND || child->type == AST_CONDX || child->type == AST_CONDZ);
 					collect_lvalues(reg, child, type_eq, type_le, false);
 				}
 			break;
 
 		case AST_COND:
+		case AST_CONDX:
+		case AST_CONDZ:
 		case AST_ALWAYS:
 		case AST_INITIAL:
 			for (auto child : ast->children)
@@ -427,6 +429,17 @@ struct AST_INTERNAL::ProcessGenerator
 			{
 				RTLIL::SigSpec unmapped_lvalue = ast->children[0]->genRTLIL(), lvalue = unmapped_lvalue;
 				RTLIL::SigSpec rvalue = ast->children[1]->genWidthRTLIL(lvalue.size(), &subst_rvalue_map.stdmap());
+
+				pool<SigBit> lvalue_sigbits;
+				for (int i = 0; i < GetSize(lvalue); i++) {
+					if (lvalue_sigbits.count(lvalue[i]) > 0) {
+						unmapped_lvalue.remove(i);
+						lvalue.remove(i);
+						rvalue.remove(i--);
+					} else
+						lvalue_sigbits.insert(lvalue[i]);
+				}
+
 				lvalue.replace(subst_lvalue_map.stdmap());
 
 				if (ast->type == AST_ASSIGN_EQ) {
@@ -467,7 +480,7 @@ struct AST_INTERNAL::ProcessGenerator
 				{
 					if (child == ast->children[0])
 						continue;
-					log_assert(child->type == AST_COND);
+					log_assert(child->type == AST_COND || child->type == AST_CONDX || child->type == AST_CONDZ);
 
 					subst_lvalue_map.save();
 					subst_rvalue_map.save();
@@ -589,7 +602,7 @@ void AstNode::detectSignWidthWorker(int &width_hint, bool &sign_hint, bool *foun
 					// log("---\n");
 					// id_ast->dumpAst(NULL, "decl> ");
 					// dumpAst(NULL, "ref> ");
-					log_error("Failed to detect with of signal access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
+					log_error("Failed to detect width of signal access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
 				}
 			} else {
 				this_width = id_ast->range_left - id_ast->range_right + 1;
@@ -600,7 +613,7 @@ void AstNode::detectSignWidthWorker(int &width_hint, bool &sign_hint, bool *foun
 			this_width = 32;
 		} else if (id_ast->type == AST_MEMORY) {
 			if (!id_ast->children[0]->range_valid)
-				log_error("Failed to detect with of memory access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
+				log_error("Failed to detect width of memory access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
 			this_width = id_ast->children[0]->range_left - id_ast->children[0]->range_right + 1;
 		} else
 			log_error("Failed to detect width for identifier %s at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
@@ -732,7 +745,7 @@ void AstNode::detectSignWidthWorker(int &width_hint, bool &sign_hint, bool *foun
 		if (!id2ast->is_signed)
 			sign_hint = false;
 		if (!id2ast->children[0]->range_valid)
-			log_error("Failed to detect with of memory access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
+			log_error("Failed to detect width of memory access `%s' at %s:%d!\n", str.c_str(), filename.c_str(), linenum);
 		this_width = id2ast->children[0]->range_left - id2ast->children[0]->range_right + 1;
 		width_hint = max(width_hint, this_width);
 		break;
@@ -793,6 +806,7 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 	case AST_GENBLOCK:
 	case AST_GENIF:
 	case AST_GENCASE:
+	case AST_PACKAGE:
 		break;
 
 	// remember the parameter, needed for example in techmap
@@ -1282,7 +1296,12 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 	// generate $assert cells
 	case AST_ASSERT:
 	case AST_ASSUME:
+	case AST_EXPECT:
 		{
+			const char *celltype = "$assert";
+			if (type == AST_ASSUME) celltype = "$assume";
+			if (type == AST_EXPECT) celltype = "$expect";
+
 			log_assert(children.size() == 2);
 
 			RTLIL::SigSpec check = children[0]->genRTLIL();
@@ -1294,9 +1313,9 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 				en = current_module->ReduceBool(NEW_ID, en);
 
 			std::stringstream sstr;
-			sstr << (type == AST_ASSERT ? "$assert$" : "$assume$") << filename << ":" << linenum << "$" << (autoidx++);
+			sstr << celltype << "$" << filename << ":" << linenum << "$" << (autoidx++);
 
-			RTLIL::Cell *cell = current_module->addCell(sstr.str(), type == AST_ASSERT ? "$assert" : "$assume");
+			RTLIL::Cell *cell = current_module->addCell(sstr.str(), celltype);
 			cell->attributes["\\src"] = stringf("%s:%d", filename.c_str(), linenum);
 
 			for (auto &attr : attributes) {

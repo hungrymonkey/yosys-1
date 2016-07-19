@@ -104,7 +104,7 @@ void yosys_banner()
 	log(" |                                                                            |\n");
 	log(" |  yosys -- Yosys Open SYnthesis Suite                                       |\n");
 	log(" |                                                                            |\n");
-	log(" |  Copyright (C) 2012 - 2015  Clifford Wolf <clifford@clifford.at>           |\n");
+	log(" |  Copyright (C) 2012 - 2016  Clifford Wolf <clifford@clifford.at>           |\n");
 	log(" |                                                                            |\n");
 	log(" |  Permission to use, copy, modify, and/or distribute this software for any  |\n");
 	log(" |  purpose with or without fee is hereby granted, provided that the above    |\n");
@@ -701,6 +701,11 @@ std::string proc_share_dirname()
 	proc_share_path = proc_self_path + "../share/yosys/";
 	if (check_file_exists(proc_share_path, true))
 		return proc_share_path;
+#    ifdef YOSYS_DATDIR
+	proc_share_path = YOSYS_DATDIR "/";
+	if (check_file_exists(proc_share_path, true))
+		return proc_share_path;
+#    endif
 #  endif
 	log_error("proc_share_dirname: unable to determine share/ directory!\n");
 }
@@ -758,6 +763,8 @@ void run_frontend(std::string filename, std::string command, std::string *backen
 			command = "verilog";
 		else if (filename.size() > 2 && filename.substr(filename.size()-3) == ".sv")
 			command = "verilog -sv";
+		else if (filename.size() > 2 && filename.substr(filename.size()-4) == ".vhd")
+			command = "vhdl";
 		else if (filename.size() > 4 && filename.substr(filename.size()-5) == ".blif")
 			command = "blif";
 		else if (filename.size() > 3 && filename.substr(filename.size()-3) == ".il")
@@ -1093,8 +1100,8 @@ struct HistoryPass : public Pass {
 } HistoryPass;
 #endif
 
-struct ScriptPass : public Pass {
-	ScriptPass() : Pass("script", "execute commands from script file") { }
+struct ScriptCmdPass : public Pass {
+	ScriptCmdPass() : Pass("script", "execute commands from script file") { }
 	virtual void help() {
 		log("\n");
 		log("    script <filename> [<from_label>:<to_label>]\n");
@@ -1120,7 +1127,7 @@ struct ScriptPass : public Pass {
 		else
 			extra_args(args, 2, design, false);
 	}
-} ScriptPass;
+} ScriptCmdPass;
 
 YOSYS_NAMESPACE_END
 

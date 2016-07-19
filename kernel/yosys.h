@@ -51,6 +51,7 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <memory>
+#include <cmath>
 
 #include <sstream>
 #include <fstream>
@@ -91,9 +92,9 @@
 #  define mkdir _mkdir
 #  define popen _popen
 #  define pclose _pclose
-#  define PATH_MAX MAX_PATH
 
 #  ifndef __MINGW32__
+#    define PATH_MAX MAX_PATH
 #    define isatty _isatty
 #    define fileno _fileno
 #  endif

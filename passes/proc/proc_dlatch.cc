@@ -33,6 +33,8 @@ struct proc_dlatch_db_t
 	Module *module;
 	SigMap sigmap;
 
+	pool<Cell*> generated_dlatches;
+	dict<Cell*, vector<SigBit>> mux_srcbits;
 	dict<SigBit, pair<Cell*, int>> mux_drivers;
 	dict<SigBit, int> sigusers;
 
@@ -40,10 +42,24 @@ struct proc_dlatch_db_t
 	{
 		for (auto cell : module->cells())
 		{
-			if (cell->type.in("$mux", "$pmux")) {
+			if (cell->type.in("$mux", "$pmux"))
+			{
 				auto sig_y = sigmap(cell->getPort("\\Y"));
 				for (int i = 0; i < GetSize(sig_y); i++)
 					mux_drivers[sig_y[i]] = pair<Cell*, int>(cell, i);
+
+				pool<SigBit> mux_srcbits_pool;
+				for (auto bit : sigmap(cell->getPort("\\A")))
+					mux_srcbits_pool.insert(bit);
+				for (auto bit : sigmap(cell->getPort("\\B")))
+					mux_srcbits_pool.insert(bit);
+
+				vector<SigBit> mux_srcbits_vec;
+				for (auto bit : mux_srcbits_pool)
+					if (bit.wire != nullptr)
+						mux_srcbits_vec.push_back(bit);
+
+				mux_srcbits[cell].swap(mux_srcbits_vec);
 			}
 
 			for (auto &conn : cell->connections())
@@ -56,6 +72,42 @@ struct proc_dlatch_db_t
 			if (wire->port_input)
 				for (auto bit : sigmap(wire))
 					sigusers[bit]++;
+	}
+
+	bool quickcheck(const SigSpec &haystack, const SigSpec &needle)
+	{
+		pool<SigBit> haystack_bits = sigmap(haystack).to_sigbit_pool();
+		pool<SigBit> needle_bits = sigmap(needle).to_sigbit_pool();
+
+		pool<Cell*> cells_queue, cells_visited;
+		pool<SigBit> bits_queue, bits_visited;
+
+		bits_queue = haystack_bits;
+		while (!bits_queue.empty())
+		{
+			for (auto &bit : bits_queue) {
+				auto it = mux_drivers.find(bit);
+				if (it != mux_drivers.end())
+					if (!cells_visited.count(it->second.first))
+						cells_queue.insert(it->second.first);
+				bits_visited.insert(bit);
+			}
+
+			bits_queue.clear();
+
+			for (auto c : cells_queue) {
+				for (auto bit : mux_srcbits[c]) {
+					if (needle_bits.count(bit))
+						return true;
+					if (!bits_visited.count(bit))
+						bits_queue.insert(bit);
+				}
+			}
+
+			cells_queue.clear();
+		}
+
+		return false;
 	}
 
 	struct rule_node_t
@@ -202,6 +254,84 @@ struct proc_dlatch_db_t
 		rules_sig[n] = and_bits[0];
 		return and_bits[0];
 	}
+
+	void fixup_mux(Cell *cell)
+	{
+		SigSpec sig_a = cell->getPort("\\A");
+		SigSpec sig_b = cell->getPort("\\B");
+		SigSpec sig_s = cell->getPort("\\S");
+		SigSpec sig_any_valid_b;
+
+		SigSpec sig_new_b, sig_new_s;
+		for (int i = 0; i < GetSize(sig_s); i++) {
+			SigSpec b = sig_b.extract(i*GetSize(sig_a), GetSize(sig_a));
+			if (!b.is_fully_undef()) {
+				sig_any_valid_b = b;
+				sig_new_b.append(b);
+				sig_new_s.append(sig_s[i]);
+			}
+		}
+
+		if (sig_new_s.empty()) {
+			sig_new_b = sig_a;
+			sig_new_s = State::S0;
+		}
+
+		if (sig_a.is_fully_undef() && !sig_any_valid_b.empty())
+			cell->setPort("\\A", sig_any_valid_b);
+
+		if (GetSize(sig_new_s) == 1) {
+			cell->type = "$mux";
+			cell->unsetParam("\\S_WIDTH");
+		} else {
+			cell->type = "$pmux";
+			cell->setParam("\\S_WIDTH", GetSize(sig_new_s));
+		}
+
+		cell->setPort("\\B", sig_new_b);
+		cell->setPort("\\S", sig_new_s);
+	}
+
+	void fixup_muxes()
+	{
+		pool<Cell*> visited, queue;
+		dict<Cell*, pool<SigBit>> upstream_cell2net;
+		dict<SigBit, pool<Cell*>> upstream_net2cell;
+
+		CellTypes ct;
+		ct.setup_internals();
+
+		for (auto cell : module->cells())
+		for (auto conn : cell->connections()) {
+			if (cell->input(conn.first))
+				for (auto bit : sigmap(conn.second))
+					upstream_cell2net[cell].insert(bit);
+			if (cell->output(conn.first))
+				for (auto bit : sigmap(conn.second))
+					upstream_net2cell[bit].insert(cell);
+		}
+
+		queue = generated_dlatches;
+		while (!queue.empty())
+		{
+			pool<Cell*> next_queue;
+
+			for (auto cell : queue) {
+				if (cell->type.in("$mux", "$pmux"))
+					fixup_mux(cell);
+				for (auto bit : upstream_cell2net[cell])
+					for (auto cell : upstream_net2cell[bit])
+						next_queue.insert(cell);
+				visited.insert(cell);
+			}
+
+			queue.clear();
+			for (auto cell : next_queue) {
+				if (!visited.count(cell) && ct.cell_known(cell->type))
+					queue.insert(cell);
+			}
+		}
+	}
 };
 
 void proc_dlatch(proc_dlatch_db_t &db, RTLIL::Process *proc)
@@ -218,9 +348,17 @@ void proc_dlatch(proc_dlatch_db_t &db, RTLIL::Process *proc)
 			continue;
 		}
 
-		for (auto ss : sr->actions) {
+		for (auto ss : sr->actions)
+		{
 			db.sigmap.apply(ss.first);
 			db.sigmap.apply(ss.second);
+
+			if (!db.quickcheck(ss.second, ss.first)) {
+				nolatches_bits.first.append(ss.first);
+				nolatches_bits.second.append(ss.second);
+				continue;
+			}
+
 			for (int i = 0; i < GetSize(ss.first); i++)
 				latches_out_in[ss.first[i]] = ss.second[i];
 		}
@@ -268,6 +406,8 @@ void proc_dlatch(proc_dlatch_db_t &db, RTLIL::Process *proc)
 			SigSpec rhs = latches_bits.second.extract(offset, width);
 
 			Cell *cell = db.module->addDlatch(NEW_ID, db.module->Not(NEW_ID, db.make_hold(n)), rhs, lhs);
+			db.generated_dlatches.insert(cell);
+
 			log("Latch inferred for signal `%s.%s' from process `%s.%s': %s\n",
 					db.module->name.c_str(), log_signal(lhs), db.module->name.c_str(), proc->name.c_str(), log_id(cell));
 		}
@@ -292,7 +432,7 @@ struct ProcDlatchPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing PROC_DLATCH pass (convert process syncs to latches).\n");
+		log_header(design, "Executing PROC_DLATCH pass (convert process syncs to latches).\n");
 
 		extra_args(args, 1, design);
 
@@ -301,6 +441,7 @@ struct ProcDlatchPass : public Pass {
 			for (auto &proc_it : module->processes)
 				if (design->selected(module, proc_it.second))
 					proc_dlatch(db, proc_it.second);
+			db.fixup_muxes();
 		}
 	}
 } ProcDlatchPass;

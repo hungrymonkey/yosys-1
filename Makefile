@@ -1,7 +1,7 @@
 
 CONFIG := clang
 # CONFIG := gcc
-# CONFIG := gcc-4.6
+# CONFIG := gcc-4.8
 # CONFIG := emcc
 # CONFIG := mxe
 
@@ -29,8 +29,9 @@ SANITIZER =
 PREFIX ?= /usr/local
 INSTALL_SUDO :=
 
-TARGET_BINDIR := $(DESTDIR)$(PREFIX)/bin
-TARGET_DATDIR := $(DESTDIR)$(PREFIX)/share/yosys
+BINDIR := $(PREFIX)/bin
+LIBDIR := $(PREFIX)/lib
+DATDIR := $(PREFIX)/share/yosys
 
 EXE =
 OBJS =
@@ -47,9 +48,11 @@ all: top-all
 YOSYS_SRC := $(dir $(firstword $(MAKEFILE_LIST)))
 VPATH := $(YOSYS_SRC)
 
-CXXFLAGS += -Wall -Wextra -ggdb -I. -I"$(YOSYS_SRC)" -MD -D_YOSYS_ -fPIC -I$(DESTDIR)$(PREFIX)/include
-LDFLAGS += -L$(DESTDIR)$(PREFIX)/lib
+CXXFLAGS += -Wall -Wextra -ggdb -I. -I"$(YOSYS_SRC)" -MD -D_YOSYS_ -fPIC -I$(PREFIX)/include
+LDFLAGS += -L$(LIBDIR)
 LDLIBS = -lstdc++ -lm
+
+PKG_CONFIG = pkg-config
 SED = sed
 BISON = bison
 
@@ -78,9 +81,13 @@ OBJS = kernel/version_$(GIT_REV).o
 # is just a symlink to your actual ABC working directory, as 'make mrproper'
 # will remove the 'abc' directory and you do not want to accidentally
 # delete your work on ABC..
-ABCREV = ae7d65e71adc
+ABCREV = b5df6e2b76f0
 ABCPULL = 1
 ABCMKARGS = CC="$(CXX)" CXX="$(CXX)"
+
+# set ABCEXTERNAL = <abc-command> to use an external ABC instance
+# Note: The in-tree ABC (yosys-abc) will not be installed when ABCEXTERNAL is set.
+ABCEXTERNAL =
 
 define newline
 
@@ -105,8 +112,8 @@ ifeq ($(SANITIZER),address)
 ENABLE_COVER := 0
 endif
 ifeq ($(SANITIZER),memory)
-CXXFLAGS += -fPIE
-LDFLAGS += -fPIE
+CXXFLAGS += -fPIE -fsanitize-memory-track-origins
+LDFLAGS += -fPIE -fsanitize-memory-track-origins
 endif
 ifeq ($(SANITIZER),cfi)
 CXXFLAGS += -flto
@@ -117,12 +124,12 @@ endif
 else ifeq ($(CONFIG),gcc)
 CXX = gcc
 LD = gcc
-CXXFLAGS += -std=gnu++0x -Os
+CXXFLAGS += -std=c++11 -Os
 
-else ifeq ($(CONFIG),gcc-4.6)
-CXX = gcc-4.6
-LD = gcc-4.6
-CXXFLAGS += -std=gnu++0x -Os
+else ifeq ($(CONFIG),gcc-4.8)
+CXX = gcc-4.8
+LD = gcc-4.8
+CXXFLAGS += -std=c++11 -Os
 
 else ifeq ($(CONFIG),emcc)
 CXX = emcc
@@ -155,9 +162,9 @@ yosys.html: misc/yosys.html
 	$(P) cp misc/yosys.html yosys.html
 
 else ifeq ($(CONFIG),mxe)
-CXX = /usr/local/src/mxe/usr/bin/i686-pc-mingw32-gcc
-LD = /usr/local/src/mxe/usr/bin/i686-pc-mingw32-gcc
-CXXFLAGS += -std=gnu++0x -Os -D_POSIX_SOURCE
+CXX = /usr/local/src/mxe/usr/bin/i686-w64-mingw32.static-gcc
+LD = /usr/local/src/mxe/usr/bin/i686-w64-mingw32.static-gcc
+CXXFLAGS += -std=c++11 -Os -D_POSIX_SOURCE
 CXXFLAGS := $(filter-out -fPIC,$(CXXFLAGS))
 LDFLAGS := $(filter-out -rdynamic,$(LDFLAGS)) -s
 LDLIBS := $(filter-out -lrt,$(LDLIBS))
@@ -166,7 +173,7 @@ ABCMKARGS += LIBS="lib/x86/pthreadVC2.lib -s" ABC_USE_NO_READLINE=1 CC="$(CXX)" 
 EXE = .exe
 
 else ifneq ($(CONFIG),none)
-$(error Invalid CONFIG setting '$(CONFIG)'. Valid values: clang, gcc, gcc-4.6, emcc, none)
+$(error Invalid CONFIG setting '$(CONFIG)'. Valid values: clang, gcc, gcc-4.8, emcc, none)
 endif
 
 ifeq ($(ENABLE_LIBYOSYS),1)
@@ -182,12 +189,12 @@ endif
 endif
 
 ifeq ($(ENABLE_PLUGINS),1)
-CXXFLAGS += -DYOSYS_ENABLE_PLUGINS $(shell pkg-config --silence-errors --cflags libffi)
-LDLIBS += $(shell pkg-config --silence-errors --libs libffi || echo -lffi) -ldl
+CXXFLAGS += -DYOSYS_ENABLE_PLUGINS $(shell $(PKG_CONFIG) --silence-errors --cflags libffi)
+LDLIBS += $(shell $(PKG_CONFIG) --silence-errors --libs libffi || echo -lffi) -ldl
 endif
 
 ifeq ($(ENABLE_TCL),1)
-TCL_VERSION ?= tcl$(shell echo 'puts [info tclversion]' | tclsh)
+TCL_VERSION ?= tcl$(shell bash -c "tclsh <(echo 'puts [info tclversion]')")
 TCL_INCLUDE ?= /usr/include/$(TCL_VERSION)
 CXXFLAGS += -I$(TCL_INCLUDE) -DYOSYS_ENABLE_TCL
 LDLIBS += -l$(TCL_VERSION)
@@ -204,7 +211,9 @@ endif
 
 ifeq ($(ENABLE_ABC),1)
 CXXFLAGS += -DYOSYS_ENABLE_ABC
+ifeq ($(ABCEXTERNAL),)
 TARGETS += yosys-abc$(EXE)
+endif
 endif
 
 ifeq ($(ENABLE_VERIFIC),1)
@@ -267,10 +276,12 @@ $(eval $(call add_include_file,libs/ezsat/ezsat.h))
 $(eval $(call add_include_file,libs/ezsat/ezminisat.h))
 $(eval $(call add_include_file,libs/sha1/sha1.h))
 $(eval $(call add_include_file,passes/fsm/fsmdata.h))
+$(eval $(call add_include_file,frontends/ast/ast.h))
 $(eval $(call add_include_file,backends/ilang/ilang_backend.h))
 
 OBJS += kernel/driver.o kernel/register.o kernel/rtlil.o kernel/log.o kernel/calc.o kernel/yosys.o kernel/cellaigs.o
 kernel/log.o: CXXFLAGS += -DYOSYS_SRC='"$(YOSYS_SRC)"'
+kernel/yosys.o: CXXFLAGS += -DYOSYS_DATDIR='"$(DATDIR)"'
 
 OBJS += libs/bigint/BigIntegerAlgorithms.o libs/bigint/BigInteger.o libs/bigint/BigIntegerUtils.o
 OBJS += libs/bigint/BigUnsigned.o libs/bigint/BigUnsignedInABase.o
@@ -349,9 +360,9 @@ kernel/version_$(GIT_REV).cc: $(YOSYS_SRC)/Makefile
 			$(CXX) --version | tr ' ()' '\n' | grep '^[0-9]' | head -n1` $(filter -f% -m% -O% -DNDEBUG,$(CXXFLAGS)))\"; }" > kernel/version_$(GIT_REV).cc
 
 yosys-config: misc/yosys-config.in
-	$(P) $(SED) -e 's#@CXXFLAGS@#$(subst -I. -I"$(YOSYS_SRC)",-I"$(TARGET_DATDIR)/include",$(CXXFLAGS))#;' \
+	$(P) $(SED) -e 's#@CXXFLAGS@#$(subst -I. -I"$(YOSYS_SRC)",-I"$(DATDIR)/include",$(CXXFLAGS))#;' \
 			-e 's#@CXX@#$(CXX)#;' -e 's#@LDFLAGS@#$(LDFLAGS)#;' -e 's#@LDLIBS@#$(LDLIBS)#;' \
-			-e 's#@BINDIR@#$(TARGET_BINDIR)#;' -e 's#@DATDIR@#$(TARGET_DATDIR)#;' < $< > yosys-config
+			-e 's#@BINDIR@#$(BINDIR)#;' -e 's#@DATDIR@#$(DATDIR)#;' < $< > yosys-config
 	$(Q) chmod +x yosys-config
 
 abc/abc-$(ABCREV)$(EXE):
@@ -408,20 +419,20 @@ vloghtb: $(TARGETS) $(EXTRA_TARGETS)
 	@echo ""
 
 install: $(TARGETS) $(EXTRA_TARGETS)
-	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(PREFIX)/bin
-	$(INSTALL_SUDO) install $(TARGETS) $(DESTDIR)$(PREFIX)/bin/
-	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(PREFIX)/share/yosys
-	$(INSTALL_SUDO) cp -r share/. $(DESTDIR)$(PREFIX)/share/yosys/.
+	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(BINDIR)
+	$(INSTALL_SUDO) install $(TARGETS) $(DESTDIR)$(BINDIR)
+	$(INSTALL_SUDO) mkdir -p $(DESTDIR)$(DATDIR)
+	$(INSTALL_SUDO) cp -r share/. $(DESTDIR)$(DATDIR)/.
 ifeq ($(ENABLE_LIBYOSYS),1)
-	$(INSTALL_SUDO) cp libyosys.so $(DESTDIR)$(PREFIX)/lib/
+	$(INSTALL_SUDO) cp libyosys.so $(DESTDIR)$(LIBDIR)
 	$(INSTALL_SUDO) ldconfig
 endif
 
 uninstall:
-	$(INSTALL_SUDO) rm -vf $(addprefix $(DESTDIR)$(PREFIX)/bin/,$(notdir $(TARGETS)))
-	$(INSTALL_SUDO) rm -rvf $(DESTDIR)$(PREFIX)/share/yosys/
+	$(INSTALL_SUDO) rm -vf $(addprefix $(DESTDIR)$(BINDIR),$(notdir $(TARGETS)))
+	$(INSTALL_SUDO) rm -rvf $(DESTDIR)$(DATDIR)
 ifeq ($(ENABLE_LIBYOSYS),1)
-	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(PREFIX)/lib/libyosys.so
+	$(INSTALL_SUDO) rm -vf $(DESTDIR)$(LIBDIR)/libyosys.so
 endif
 
 update-manual: $(TARGETS) $(EXTRA_TARGETS)
@@ -456,7 +467,7 @@ qtcreator:
 vcxsrc: $(GENFILES) $(EXTRA_TARGETS)
 	rm -rf yosys-win32-vcxsrc-$(YOSYS_VER){,.zip}
 	set -e; for f in `ls $(filter %.cc %.cpp,$(GENFILES)) $(addsuffix .cc,$(basename $(OBJS))) $(addsuffix .cpp,$(basename $(OBJS))) 2> /dev/null`; do \
-		echo "Analyse: $$f" >&2; cpp -std=gnu++0x -MM -I. -D_YOSYS_ $$f; done | sed 's,.*:,,; s,//*,/,g; s,/[^/]*/\.\./,/,g; y, \\,\n\n,;' | grep '^[^/]' | sort -u | grep -v kernel/version_ > srcfiles.txt
+		echo "Analyse: $$f" >&2; cpp -std=c++11 -MM -I. -D_YOSYS_ $$f; done | sed 's,.*:,,; s,//*,/,g; s,/[^/]*/\.\./,/,g; y, \\,\n\n,;' | grep '^[^/]' | sort -u | grep -v kernel/version_ > srcfiles.txt
 	bash misc/create_vcxsrc.sh yosys-win32-vcxsrc $(YOSYS_VER) $(GIT_REV)
 	echo "namespace Yosys { extern const char *yosys_version_str; const char *yosys_version_str=\"Yosys (Version Information Unavailable)\"; }" > kernel/version.cc
 	zip yosys-win32-vcxsrc-$(YOSYS_VER)/genfiles.zip $(GENFILES) kernel/version.cc
@@ -485,8 +496,8 @@ config-clang: clean
 config-gcc: clean
 	echo 'CONFIG := gcc' > Makefile.conf
 
-config-gcc-4.6: clean
-	echo 'CONFIG := gcc-4.6' > Makefile.conf
+config-gcc-4.8: clean
+	echo 'CONFIG := gcc-4.8' > Makefile.conf
 
 config-emcc: clean
 	echo 'CONFIG := emcc' > Makefile.conf
@@ -522,5 +533,5 @@ echo-git-rev:
 -include techlibs/*/*.d
 
 .PHONY: all top-all abc test install install-abc manual clean mrproper qtcreator
-.PHONY: config-clean config-clang config-gcc config-gcc-4.6 config-gprof config-sudo
+.PHONY: config-clean config-clang config-gcc config-gcc-4.8 config-gprof config-sudo
 

@@ -29,15 +29,17 @@
 // Kahn, Arthur B. (1962), "Topological sorting of large networks", Communications of the ACM 5 (11): 558-562, doi:10.1145/368996.369025
 // http://en.wikipedia.org/wiki/Topological_sorting
 
-#define ABC_COMMAND_LIB "strash; scorr; ifraig; retime {D}; strash; dch -f; map {D}"
-#define ABC_COMMAND_CTR "strash; scorr; ifraig; retime {D}; strash; dch -f; map {D}; buffer; upsize {D}; dnsize {D}; stime -p"
-#define ABC_COMMAND_LUT "strash; scorr; ifraig; retime; strash; dch -f; if; mfs"
-#define ABC_COMMAND_DFL "strash; scorr; ifraig; retime; strash; dch -f; map"
+#define ABC_COMMAND_LIB "strash; dc2; scorr; ifraig; retime -o {D}; strash; dch -f; map {D}"
+#define ABC_COMMAND_CTR "strash; dc2; scorr; ifraig; retime -o {D}; strash; dch -f; map {D}; buffer; upsize {D}; dnsize {D}; stime -p"
+#define ABC_COMMAND_LUT "strash; dc2; scorr; ifraig; retime -o; strash; dch -f; if; mfs"
+#define ABC_COMMAND_SOP "strash; dc2; scorr; ifraig; retime -o; strash; dch -f; cover {I} {P}"
+#define ABC_COMMAND_DFL "strash; dc2; scorr; ifraig; retime -o; strash; dch -f; map"
 
-#define ABC_FAST_COMMAND_LIB "retime {D}; map {D}"
-#define ABC_FAST_COMMAND_CTR "retime {D}; map {D}; buffer; upsize {D}; dnsize {D}; stime -p"
-#define ABC_FAST_COMMAND_LUT "retime; if"
-#define ABC_FAST_COMMAND_DFL "retime; map"
+#define ABC_FAST_COMMAND_LIB "retime -o {D}; map {D}"
+#define ABC_FAST_COMMAND_CTR "retime -o {D}; map {D}; buffer; upsize {D}; dnsize {D}; stime -p"
+#define ABC_FAST_COMMAND_LUT "retime -o; if"
+#define ABC_FAST_COMMAND_SOP "retime -o; cover -I {I} -P {P}"
+#define ABC_FAST_COMMAND_DFL "retime -o; map"
 
 #include "kernel/register.h"
 #include "kernel/sigtools.h"
@@ -593,7 +595,8 @@ struct abc_output_filter
 
 void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::string script_file, std::string exe_file,
 		std::string liberty_file, std::string constr_file, bool cleanup, vector<int> lut_costs, bool dff_mode, std::string clk_str,
-		bool keepff, std::string delay_target, bool fast_mode, const std::vector<RTLIL::Cell*> &cells, bool show_tempdir)
+		bool keepff, std::string delay_target, std::string sop_inputs, std::string sop_products, bool fast_mode,
+		const std::vector<RTLIL::Cell*> &cells, bool show_tempdir, bool sop_mode)
 {
 	module = current_module;
 	map_autoidx = autoidx++;
@@ -616,7 +619,7 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 	if (!cleanup)
 		tempdir_name[0] = tempdir_name[4] = '_';
 	tempdir_name = make_temp_dir(tempdir_name);
-	log_header("Extracting gate netlist of module `%s' to `%s/input.blif'..\n",
+	log_header(design, "Extracting gate netlist of module `%s' to `%s/input.blif'..\n",
 			module->name.c_str(), replace_tempdir(tempdir_name, tempdir_name, show_tempdir).c_str());
 
 	std::string abc_script = stringf("read_blif %s/input.blif; ", tempdir_name.c_str());
@@ -652,11 +655,19 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 			abc_script += "; lutpack";
 	} else if (!liberty_file.empty())
 		abc_script += constr_file.empty() ? (fast_mode ? ABC_FAST_COMMAND_LIB : ABC_COMMAND_LIB) : (fast_mode ? ABC_FAST_COMMAND_CTR : ABC_COMMAND_CTR);
+	else if (sop_mode)
+		abc_script += fast_mode ? ABC_FAST_COMMAND_SOP : ABC_COMMAND_SOP;
 	else
 		abc_script += fast_mode ? ABC_FAST_COMMAND_DFL : ABC_COMMAND_DFL;
 
 	for (size_t pos = abc_script.find("{D}"); pos != std::string::npos; pos = abc_script.find("{D}", pos))
 		abc_script = abc_script.substr(0, pos) + delay_target + abc_script.substr(pos+3);
+
+	for (size_t pos = abc_script.find("{I}"); pos != std::string::npos; pos = abc_script.find("{D}", pos))
+		abc_script = abc_script.substr(0, pos) + sop_inputs + abc_script.substr(pos+3);
+
+	for (size_t pos = abc_script.find("{P}"); pos != std::string::npos; pos = abc_script.find("{D}", pos))
+		abc_script = abc_script.substr(0, pos) + sop_products + abc_script.substr(pos+3);
 
 	abc_script += stringf("; write_blif %s/output.blif", tempdir_name.c_str());
 	abc_script = add_echos_to_abc_cmd(abc_script);
@@ -834,7 +845,7 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 
 	if (count_output > 0)
 	{
-		log_header("Executing ABC.\n");
+		log_header(design, "Executing ABC.\n");
 
 		buffer = stringf("%s/stdcells.genlib", tempdir_name.c_str());
 		f = fopen(buffer.c_str(), "wt");
@@ -898,13 +909,13 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 		if (ifs.fail())
 			log_error("Can't open ABC output file `%s'.\n", buffer.c_str());
 
-		bool builtin_lib = liberty_file.empty() && script_file.empty() && lut_costs.empty();
+		bool builtin_lib = liberty_file.empty();
 		RTLIL::Design *mapped_design = new RTLIL::Design;
-		parse_blif(mapped_design, ifs, builtin_lib ? "\\DFF" : "\\_dff_");
+		parse_blif(mapped_design, ifs, builtin_lib ? "\\DFF" : "\\_dff_", false, sop_mode);
 
 		ifs.close();
 
-		log_header("Re-integrating ABC results.\n");
+		log_header(design, "Re-integrating ABC results.\n");
 		RTLIL::Module *mapped_mod = mapped_design->modules_["\\netlist"];
 		if (mapped_mod == NULL)
 			log_error("ABC output file does not contain a module `netlist'.\n");
@@ -916,10 +927,10 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 		}
 
 		std::map<std::string, int> cell_stats;
-		if (builtin_lib)
+		for (auto c : mapped_mod->cells())
 		{
-			for (auto &it : mapped_mod->cells_) {
-				RTLIL::Cell *c = it.second;
+			if (builtin_lib)
+			{
 				cell_stats[RTLIL::unescape_id(c->type)]++;
 				if (c->type == "\\ZERO" || c->type == "\\ONE") {
 					RTLIL::SigSig conn;
@@ -1058,60 +1069,57 @@ void abc_module(RTLIL::Design *design, RTLIL::Module *current_module, std::strin
 					design->select(module, cell);
 					continue;
 				}
-				log_abort();
 			}
-		}
-		else
-		{
-			for (auto &it : mapped_mod->cells_)
-			{
-				RTLIL::Cell *c = it.second;
-				cell_stats[RTLIL::unescape_id(c->type)]++;
-				if (c->type == "\\_const0_" || c->type == "\\_const1_") {
-					RTLIL::SigSig conn;
-					conn.first = RTLIL::SigSpec(module->wires_[remap_name(c->connections().begin()->second.as_wire()->name)]);
-					conn.second = RTLIL::SigSpec(c->type == "\\_const0_" ? 0 : 1, 1);
-					module->connect(conn);
-					continue;
+
+			cell_stats[RTLIL::unescape_id(c->type)]++;
+
+			if (c->type == "\\_const0_" || c->type == "\\_const1_") {
+				RTLIL::SigSig conn;
+				conn.first = RTLIL::SigSpec(module->wires_[remap_name(c->connections().begin()->second.as_wire()->name)]);
+				conn.second = RTLIL::SigSpec(c->type == "\\_const0_" ? 0 : 1, 1);
+				module->connect(conn);
+				continue;
+			}
+
+			if (c->type == "\\_dff_") {
+				log_assert(clk_sig.size() == 1);
+				RTLIL::Cell *cell;
+				if (en_sig.size() == 0) {
+					cell = module->addCell(remap_name(c->name), clk_polarity ? "$_DFF_P_" : "$_DFF_N_");
+				} else {
+					log_assert(en_sig.size() == 1);
+					cell = module->addCell(remap_name(c->name), stringf("$_DFFE_%c%c_", clk_polarity ? 'P' : 'N', en_polarity ? 'P' : 'N'));
+					cell->setPort("\\E", en_sig);
 				}
-				if (c->type == "\\_dff_") {
-					log_assert(clk_sig.size() == 1);
-					RTLIL::Cell *cell;
-					if (en_sig.size() == 0) {
-						cell = module->addCell(remap_name(c->name), clk_polarity ? "$_DFF_P_" : "$_DFF_N_");
-					} else {
-						log_assert(en_sig.size() == 1);
-						cell = module->addCell(remap_name(c->name), stringf("$_DFFE_%c%c_", clk_polarity ? 'P' : 'N', en_polarity ? 'P' : 'N'));
-						cell->setPort("\\E", en_sig);
-					}
-					if (markgroups) cell->attributes["\\abcgroup"] = map_autoidx;
-					cell->setPort("\\D", RTLIL::SigSpec(module->wires_[remap_name(c->getPort("\\D").as_wire()->name)]));
-					cell->setPort("\\Q", RTLIL::SigSpec(module->wires_[remap_name(c->getPort("\\Q").as_wire()->name)]));
-					cell->setPort("\\C", clk_sig);
-					design->select(module, cell);
-					continue;
-				}
-				if (c->type == "$lut" && GetSize(c->getPort("\\A")) == 1 && c->getParam("\\LUT").as_int() == 2) {
-					SigSpec my_a = module->wires_[remap_name(c->getPort("\\A").as_wire()->name)];
-					SigSpec my_y = module->wires_[remap_name(c->getPort("\\Y").as_wire()->name)];
-					module->connect(my_y, my_a);
-					continue;
-				}
-				RTLIL::Cell *cell = module->addCell(remap_name(c->name), c->type);
 				if (markgroups) cell->attributes["\\abcgroup"] = map_autoidx;
-				cell->parameters = c->parameters;
-				for (auto &conn : c->connections()) {
-					RTLIL::SigSpec newsig;
-					for (auto &c : conn.second.chunks()) {
-						if (c.width == 0)
-							continue;
-						log_assert(c.width == 1);
-						newsig.append(module->wires_[remap_name(c.wire->name)]);
-					}
-					cell->setPort(conn.first, newsig);
-				}
+				cell->setPort("\\D", RTLIL::SigSpec(module->wires_[remap_name(c->getPort("\\D").as_wire()->name)]));
+				cell->setPort("\\Q", RTLIL::SigSpec(module->wires_[remap_name(c->getPort("\\Q").as_wire()->name)]));
+				cell->setPort("\\C", clk_sig);
 				design->select(module, cell);
+				continue;
 			}
+
+			if (c->type == "$lut" && GetSize(c->getPort("\\A")) == 1 && c->getParam("\\LUT").as_int() == 2) {
+				SigSpec my_a = module->wires_[remap_name(c->getPort("\\A").as_wire()->name)];
+				SigSpec my_y = module->wires_[remap_name(c->getPort("\\Y").as_wire()->name)];
+				module->connect(my_y, my_a);
+				continue;
+			}
+
+			RTLIL::Cell *cell = module->addCell(remap_name(c->name), c->type);
+			if (markgroups) cell->attributes["\\abcgroup"] = map_autoidx;
+			cell->parameters = c->parameters;
+			for (auto &conn : c->connections()) {
+				RTLIL::SigSpec newsig;
+				for (auto &c : conn.second.chunks()) {
+					if (c.width == 0)
+						continue;
+					log_assert(c.width == 1);
+					newsig.append(module->wires_[remap_name(c.wire->name)]);
+				}
+				cell->setPort(conn.first, newsig);
+			}
+			design->select(module, cell);
 		}
 
 		for (auto conn : mapped_mod->connections()) {
@@ -1173,7 +1181,11 @@ struct AbcPass : public Pass {
 		log("library to a target architecture.\n");
 		log("\n");
 		log("    -exe <command>\n");
-		log("        use the specified command name instead of \"yosys-abc\" to execute ABC.\n");
+#ifdef ABCEXTERNAL
+		log("        use the specified command instead of \"" ABCEXTERNAL "\" to execute ABC.\n");
+#else
+		log("        use the specified command instead of \"<yosys-bindir>/yosys-abc\" to execute ABC.\n");
+#endif
 		log("        This can e.g. be used to call a specific version of ABC or a wrapper.\n");
 		log("\n");
 		log("    -script <file>\n");
@@ -1198,6 +1210,9 @@ struct AbcPass : public Pass {
 		log("        for -lut/-luts (different LUT sizes):\n");
 		log("%s\n", fold_abc_cmd(ABC_COMMAND_LUT).c_str());
 		log("\n");
+		log("        for -sop:\n");
+		log("%s\n", fold_abc_cmd(ABC_COMMAND_SOP).c_str());
+		log("\n");
 		log("        otherwise:\n");
 		log("%s\n", fold_abc_cmd(ABC_COMMAND_DFL).c_str());
 		log("\n");
@@ -1213,6 +1228,9 @@ struct AbcPass : public Pass {
 		log("\n");
 		log("        for -lut/-luts:\n");
 		log("%s\n", fold_abc_cmd(ABC_FAST_COMMAND_LUT).c_str());
+		log("\n");
+		log("        for -sop:\n");
+		log("%s\n", fold_abc_cmd(ABC_FAST_COMMAND_SOP).c_str());
 		log("\n");
 		log("        otherwise:\n");
 		log("%s\n", fold_abc_cmd(ABC_FAST_COMMAND_DFL).c_str());
@@ -1236,6 +1254,14 @@ struct AbcPass : public Pass {
 		log("        set delay target. the string {D} in the default scripts above is\n");
 		log("        replaced by this option when used, and an empty string otherwise.\n");
 		log("\n");
+		log("    -I <num>\n");
+		log("        maximum number of SOP inputs.\n");
+		log("        (replaces {I} in the default scripts above)\n");
+		log("\n");
+		log("    -P <num>\n");
+		log("        maximum number of SOP products.\n");
+		log("        (replaces {P} in the default scripts above)\n");
+		log("\n");
 		log("    -lut <width>\n");
 		log("        generate netlist using luts of (max) the specified width.\n");
 		log("\n");
@@ -1248,6 +1274,9 @@ struct AbcPass : public Pass {
 		log("    -luts <cost1>,<cost2>,<cost3>,<sizeN>:<cost4-N>,..\n");
 		log("        generate netlist using luts. Use the specified costs for luts with 1,\n");
 		log("        2, 3, .. inputs.\n");
+		log("\n");
+		log("    -sop\n");
+		log("        map to sum-of-product cells and inverters\n");
 		log("\n");
 		// log("    -mux4, -mux8, -mux16\n");
 		// log("        try to extract 4-input, 8-input, and/or 16-input muxes\n");
@@ -1295,13 +1324,18 @@ struct AbcPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing ABC pass (technology mapping using ABC).\n");
+		log_header(design, "Executing ABC pass (technology mapping using ABC).\n");
 		log_push();
 
+#ifdef ABCEXTERNAL
+		std::string exe_file = ABCEXTERNAL;
+#else
 		std::string exe_file = proc_self_dirname() + "yosys-abc";
-		std::string script_file, liberty_file, constr_file, clk_str, delay_target;
+#endif
+		std::string script_file, liberty_file, constr_file, clk_str;
+		std::string delay_target, sop_inputs, sop_products;
 		bool fast_mode = false, dff_mode = false, keepff = false, cleanup = true;
-		bool show_tempdir = false;
+		bool show_tempdir = false, sop_mode = false;
 		vector<int> lut_costs;
 		markgroups = false;
 
@@ -1311,8 +1345,10 @@ struct AbcPass : public Pass {
 		enabled_gates.clear();
 
 #ifdef _WIN32
+#ifndef ABCEXTERNAL
 		if (!check_file_exists(exe_file + ".exe") && check_file_exists(proc_self_dirname() + "..\\yosys-abc.exe"))
 			exe_file = proc_self_dirname() + "..\\yosys-abc";
+#endif
 #endif
 
 		size_t argidx;
@@ -1349,6 +1385,14 @@ struct AbcPass : public Pass {
 				delay_target = "-D " + args[++argidx];
 				continue;
 			}
+			if (arg == "-I" && argidx+1 < args.size()) {
+				sop_inputs = "-I " + args[++argidx];
+				continue;
+			}
+			if (arg == "-P" && argidx+1 < args.size()) {
+				sop_products = "-P " + args[++argidx];
+				continue;
+			}
 			if (arg == "-lut" && argidx+1 < args.size()) {
 				string arg = args[++argidx];
 				size_t pos = arg.find_first_of(':');
@@ -1381,6 +1425,10 @@ struct AbcPass : public Pass {
 					else
 						log_cmd_error("Invalid -luts syntax.\n");
 				}
+				continue;
+			}
+			if (arg == "-sop") {
+				sop_mode = true;
 				continue;
 			}
 			if (arg == "-mux4") {
@@ -1456,7 +1504,8 @@ struct AbcPass : public Pass {
 			if (mod->processes.size() > 0)
 				log("Skipping module %s as it contains processes.\n", log_id(mod));
 			else if (!dff_mode || !clk_str.empty())
-				abc_module(design, mod, script_file, exe_file, liberty_file, constr_file, cleanup, lut_costs, dff_mode, clk_str, keepff, delay_target, fast_mode, mod->selected_cells(), show_tempdir);
+				abc_module(design, mod, script_file, exe_file, liberty_file, constr_file, cleanup, lut_costs, dff_mode, clk_str, keepff,
+						delay_target, sop_inputs, sop_products, fast_mode, mod->selected_cells(), show_tempdir, sop_mode);
 			else
 			{
 				assign_map.set(mod);
@@ -1589,7 +1638,7 @@ struct AbcPass : public Pass {
 					assigned_cells_reverse[cell] = key;
 				}
 
-				log_header("Summary of detected clock domains:\n");
+				log_header(design, "Summary of detected clock domains:\n");
 				for (auto &it : assigned_cells)
 					log("  %d cells in clk=%s%s, en=%s%s\n", GetSize(it.second),
 							std::get<0>(it.first) ? "" : "!", log_signal(std::get<1>(it.first)),
@@ -1600,8 +1649,8 @@ struct AbcPass : public Pass {
 					clk_sig = assign_map(std::get<1>(it.first));
 					en_polarity = std::get<2>(it.first);
 					en_sig = assign_map(std::get<3>(it.first));
-					abc_module(design, mod, script_file, exe_file, liberty_file, constr_file, cleanup, lut_costs,
-							!clk_sig.empty(), "$", keepff, delay_target, fast_mode, it.second, show_tempdir);
+					abc_module(design, mod, script_file, exe_file, liberty_file, constr_file, cleanup, lut_costs, !clk_sig.empty(), "$",
+							keepff, delay_target, sop_inputs, sop_products, fast_mode, it.second, show_tempdir, sop_mode);
 					assign_map.set(mod);
 				}
 			}

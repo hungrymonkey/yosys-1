@@ -85,7 +85,7 @@ struct CellTypes
 		std::vector<RTLIL::IdString> unary_ops = {
 			"$not", "$pos", "$neg",
 			"$reduce_and", "$reduce_or", "$reduce_xor", "$reduce_xnor", "$reduce_bool",
-			"$logic_not", "$slice", "$lut"
+			"$logic_not", "$slice", "$lut", "$sop"
 		};
 
 		std::vector<RTLIL::IdString> binary_ops = {
@@ -116,6 +116,7 @@ struct CellTypes
 
 		setup_type("$assert", {A, EN}, pool<RTLIL::IdString>(), true);
 		setup_type("$assume", {A, EN}, pool<RTLIL::IdString>(), true);
+		setup_type("$expect", {A, EN}, pool<RTLIL::IdString>(), true);
 		setup_type("$equiv", {A, B}, {Y}, true);
 	}
 
@@ -355,6 +356,44 @@ struct CellTypes
 
 			log_assert(GetSize(t) == 1);
 			return t;
+		}
+
+		if (cell->type == "$sop")
+		{
+			int width = cell->parameters.at("\\WIDTH").as_int();
+			int depth = cell->parameters.at("\\DEPTH").as_int();
+			std::vector<RTLIL::State> t = cell->parameters.at("\\TABLE").bits;
+
+			while (GetSize(t) < width*depth*2)
+				t.push_back(RTLIL::S0);
+
+			RTLIL::State default_ret = State::S0;
+
+			for (int i = 0; i < depth; i++)
+			{
+				bool match = true;
+				bool match_x = true;
+
+				for (int j = 0; j < width; j++) {
+					RTLIL::State a = arg1.bits.at(j);
+					if (t.at(2*width*i + 2*j + 0) == State::S1) {
+						if (a == State::S1) match_x = false;
+						if (a != State::S0) match = false;
+					}
+					if (t.at(2*width*i + 2*j + 1) == State::S1) {
+						if (a == State::S0) match_x = false;
+						if (a != State::S1) match = false;
+					}
+				}
+
+				if (match)
+					return State::S1;
+
+				if (match_x)
+					default_ret = State::Sx;
+			}
+
+			return default_ret;
 		}
 
 		bool signed_a = cell->parameters.count("\\A_SIGNED") > 0 && cell->parameters["\\A_SIGNED"].as_bool();

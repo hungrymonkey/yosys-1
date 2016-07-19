@@ -35,7 +35,7 @@ struct Ice40FfssrPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing ICE40_FFSSR pass (merge synchronous set/reset into FF cells).\n");
+		log_header(design, "Executing ICE40_FFSSR pass (merge synchronous set/reset into FF cells).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -81,7 +81,12 @@ struct Ice40FfssrPass : public Pass {
 
 			for (auto cell : ff_cells)
 			{
-				SigBit bit_d = sigmap(cell->getPort("\\D"));
+				SigSpec sig_d = cell->getPort("\\D");
+
+				if (GetSize(sig_d) < 1)
+					continue;
+
+				SigBit bit_d = sigmap(sig_d[0]);
 
 				if (sr_muxes.count(bit_d) == 0)
 					continue;

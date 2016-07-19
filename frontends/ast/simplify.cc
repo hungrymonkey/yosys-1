@@ -150,12 +150,11 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 
 			while (mem2reg_as_needed_pass2(mem2reg_set, this, NULL)) { }
 
-			for (size_t i = 0; i < children.size(); i++) {
-				if (mem2reg_set.count(children[i]) > 0) {
-					delete children[i];
-					children.erase(children.begin() + (i--));
-				}
-			}
+			vector<AstNode*> delnodes;
+			mem2reg_remove(mem2reg_set, delnodes);
+
+			for (auto node : delnodes)
+				delete node;
 		}
 
 		while (simplify(const_fold, at_zero, in_lvalue, 2, width_hint, sign_hint, in_param)) { }
@@ -174,8 +173,8 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 	}
 
 	// deactivate all calls to non-synthesis system tasks
-	// note that $display and $finish are used for synthesis-time DRC so they're not in this list
-	if ((type == AST_FCALL || type == AST_TCALL) && (str == "$strobe" || str == "$monitor" || str == "$time" || str == "$stop"  ||
+	// note that $display, $finish, and $stop are used for synthesis-time DRC so they're not in this list
+	if ((type == AST_FCALL || type == AST_TCALL) && (str == "$strobe" || str == "$monitor" || str == "$time" ||
 			str == "$dumpfile" || str == "$dumpvars" || str == "$dumpon" || str == "$dumpoff" || str == "$dumpall")) {
 		log_warning("Ignoring call to system %s %s at %s:%d.\n", type == AST_FCALL ? "function" : "task", str.c_str(), filename.c_str(), linenum);
 		delete_children();
@@ -193,13 +192,13 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 	// but should be good enough for most uses
 	if ((type == AST_TCALL) && ((str == "$display") || (str == "$write")))
 	{
-		size_t nargs = GetSize(children);
-		if(nargs < 1)
+		int nargs = GetSize(children);
+		if (nargs < 1)
 			log_error("System task `%s' got %d arguments, expected >= 1 at %s:%d.\n",
 					str.c_str(), int(children.size()), filename.c_str(), linenum);
 
 		// First argument is the format string
-		AstNode *node_string = children[0]->clone();
+		AstNode *node_string = children[0];
 		while (node_string->simplify(true, false, false, stage, width_hint, sign_hint, false)) { }
 		if (node_string->type != AST_CONSTANT)
 			log_error("Failed to evaluate system task `%s' with non-constant 1st argument at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
@@ -207,37 +206,57 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 
 		// Other arguments are placeholders. Process the string as we go through it
 		std::string sout;
-		size_t next_arg = 1;
-		for(size_t i=0; i<sformat.length(); i++)
+		int next_arg = 1;
+		for (size_t i = 0; i < sformat.length(); i++)
 		{
 			// format specifier
-			if(sformat[i] == '%')
+			if (sformat[i] == '%')
 			{
 				// If there's no next character, that's a problem
-				if(i+1 >= sformat.length())
+				if (i+1 >= sformat.length())
 					log_error("System task `%s' called with `%%' at end of string at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
 
 				char cformat = sformat[++i];
 
 				// %% is special, does not need a matching argument
-				if(cformat == '%')
+				if (cformat == '%')
 				{
 					sout += '%';
 					continue;
 				}
 
-				// If we're out of arguments, that's a problem!
-				if(next_arg >= nargs)
-					log_error("System task `%s' called with more format specifiers than arguments at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
-
 				// Simplify the argument
-				AstNode *node_arg = children[next_arg ++]->clone();
-				while (node_arg->simplify(true, false, false, stage, width_hint, sign_hint, false)) { }
-				if (node_arg->type != AST_CONSTANT)
-					log_error("Failed to evaluate system task `%s' with non-constant argument at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
+				AstNode *node_arg = nullptr;
 
 				// Everything from here on depends on the format specifier
-				switch(cformat)
+				switch (cformat)
+				{
+					case 's':
+					case 'S':
+					case 'd':
+					case 'D':
+					case 'x':
+					case 'X':
+						if (next_arg >= GetSize(children))
+							log_error("Missing argument for %%%c format specifier in system task `%s' at %s:%d.\n",
+									cformat, str.c_str(), filename.c_str(), linenum);
+
+						node_arg = children[next_arg++];
+						while (node_arg->simplify(true, false, false, stage, width_hint, sign_hint, false)) { }
+						if (node_arg->type != AST_CONSTANT)
+							log_error("Failed to evaluate system task `%s' with non-constant argument at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
+						break;
+
+					case 'm':
+					case 'M':
+						break;
+
+					default:
+						log_error("System task `%s' called with invalid/unsupported format specifier at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
+						break;
+				}
+
+				switch (cformat)
 				{
 					case 's':
 					case 'S':
@@ -262,9 +281,13 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 						}
 						break;
 
-					default:
-						log_error("System task `%s' called with invalid format specifier at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
+					case 'm':
+					case 'M':
+						sout += log_id(current_module->name);
 						break;
+
+					default:
+						log_abort();
 				}
 			}
 
@@ -275,7 +298,7 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 
 		// Finally, print the message (only include a \n for $display, not for $write)
 		log("%s", sout.c_str());
-		if(str == "$display")
+		if (str == "$display")
 			log("\n");
 		delete_children();
 		str = std::string();
@@ -516,6 +539,18 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 		}
 	}
 
+	if (type == AST_CONDX && children.size() > 0 && children.at(0)->type == AST_CONSTANT) {
+		for (auto &bit : children.at(0)->bits)
+			if (bit == State::Sz || bit == State::Sx)
+				bit = State::Sa;
+	}
+
+	if (type == AST_CONDZ && children.size() > 0 && children.at(0)->type == AST_CONSTANT) {
+		for (auto &bit : children.at(0)->bits)
+			if (bit == State::Sz)
+				bit = State::Sa;
+	}
+
 	if (const_fold && type == AST_CASE)
 	{
 		while (children[0]->simplify(const_fold, at_zero, in_lvalue, stage, width_hint, sign_hint, in_param)) { }
@@ -524,7 +559,7 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 			new_children.push_back(children[0]);
 			for (int i = 1; i < GetSize(children); i++) {
 				AstNode *child = children[i];
-				log_assert(child->type == AST_COND);
+				log_assert(child->type == AST_COND || child->type == AST_CONDX || child->type == AST_CONDZ);
 				for (auto v : child->children) {
 					if (v->type == AST_DEFAULT)
 						goto keep_const_cond;
@@ -1101,7 +1136,7 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 		AstNode *selected_case = NULL;
 		for (size_t i = 1; i < children.size(); i++)
 		{
-			log_assert(children.at(i)->type == AST_COND);
+			log_assert(children.at(i)->type == AST_COND || children.at(i)->type == AST_CONDX || children.at(i)->type == AST_CONDZ);
 
 			AstNode *this_genblock = NULL;
 			for (auto child : children.at(i)->children) {
@@ -1313,10 +1348,10 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 	}
 skip_dynamic_range_lvalue_expansion:;
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME) && current_block != NULL)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_EXPECT) && current_block != NULL)
 	{
 		std::stringstream sstr;
-		sstr << "$assert$" << filename << ":" << linenum << "$" << (autoidx++);
+		sstr << "$formal$" << filename << ":" << linenum << "$" << (autoidx++);
 		std::string id_check = sstr.str() + "_CHECK", id_en = sstr.str() + "_EN";
 
 		AstNode *wire_check = new AstNode(AST_WIRE);
@@ -1328,8 +1363,10 @@ skip_dynamic_range_lvalue_expansion:;
 		AstNode *wire_en = new AstNode(AST_WIRE);
 		wire_en->str = id_en;
 		current_ast_mod->children.push_back(wire_en);
-		current_ast_mod->children.push_back(new AstNode(AST_INITIAL, new AstNode(AST_BLOCK, new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), AstNode::mkconst_int(0, false, 1)))));
-		current_ast_mod->children.back()->children[0]->children[0]->children[0]->str = id_en;
+		if (current_always == nullptr || current_always->type != AST_INITIAL) {
+			current_ast_mod->children.push_back(new AstNode(AST_INITIAL, new AstNode(AST_BLOCK, new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), AstNode::mkconst_int(0, false, 1)))));
+			current_ast_mod->children.back()->children[0]->children[0]->children[0]->str = id_en;
+		}
 		current_scope[wire_en->str] = wire_en;
 		while (wire_en->simplify(true, false, false, 1, -1, false, false)) { }
 
@@ -1368,7 +1405,7 @@ skip_dynamic_range_lvalue_expansion:;
 		goto apply_newNode;
 	}
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME) && children.size() == 1)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_EXPECT) && children.size() == 1)
 	{
 		children.push_back(mkconst_int(1, false, 1));
 		did_something = true;
@@ -1381,6 +1418,50 @@ skip_dynamic_range_lvalue_expansion:;
 		newNode->str = str;
 		newNode->id2ast = id2ast;
 		goto apply_newNode;
+	}
+
+	// assignment with nontrivial member in left-hand concat expression -> split assignment
+	if ((type == AST_ASSIGN_EQ || type == AST_ASSIGN_LE) && children[0]->type == AST_CONCAT && width_hint > 0)
+	{
+		bool found_nontrivial_member = false;
+
+		for (auto child : children[0]->children) {
+			if (child->type == AST_IDENTIFIER && child->id2ast != NULL && child->id2ast->type == AST_MEMORY)
+				found_nontrivial_member = true;
+		}
+
+		if (found_nontrivial_member)
+		{
+			newNode = new AstNode(AST_BLOCK);
+
+			AstNode *wire_tmp = new AstNode(AST_WIRE, new AstNode(AST_RANGE, mkconst_int(width_hint-1, true), mkconst_int(0, true)));
+			wire_tmp->str = stringf("$splitcmplxassign$%s:%d$%d", filename.c_str(), linenum, autoidx++);
+			current_ast_mod->children.push_back(wire_tmp);
+			current_scope[wire_tmp->str] = wire_tmp;
+			wire_tmp->attributes["\\nosync"] = AstNode::mkconst_int(1, false);
+			while (wire_tmp->simplify(true, false, false, 1, -1, false, false)) { }
+
+			AstNode *wire_tmp_id = new AstNode(AST_IDENTIFIER);
+			wire_tmp_id->str = wire_tmp->str;
+
+			newNode->children.push_back(new AstNode(AST_ASSIGN_EQ, wire_tmp_id, children[1]->clone()));
+
+			int cursor = 0;
+			for (auto child : children[0]->children)
+			{
+				int child_width_hint = -1;
+				bool child_sign_hint = true;
+				child->detectSignWidth(child_width_hint, child_sign_hint);
+
+				AstNode *rhs = wire_tmp_id->clone();
+				rhs->children.push_back(new AstNode(AST_RANGE, AstNode::mkconst_int(cursor+child_width_hint-1, true), AstNode::mkconst_int(cursor, true)));
+				newNode->children.push_back(new AstNode(type, child->clone(), rhs));
+
+				cursor += child_width_hint;
+			}
+
+			goto apply_newNode;
+		}
 	}
 
 	// assignment with memory in left-hand side expression -> replace with memory write port
@@ -1674,12 +1755,12 @@ skip_dynamic_range_lvalue_expansion:;
 
 		if (type == AST_TCALL)
 		{
-			if (str == "$finish")
+			if (str == "$finish" || str == "$stop")
 			{
 				if (!current_always || current_always->type != AST_INITIAL)
-					log_error("System task `$finish' outside initial block is unsupported at %s:%d.\n", filename.c_str(), linenum);
+					log_error("System task `%s' outside initial block is unsupported at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
 
-				log_error("System task `$finish' executed at %s:%d.\n", filename.c_str(), linenum);
+				log_error("System task `%s' executed at %s:%d.\n", str.c_str(), filename.c_str(), linenum);
 			}
 
 			if (str == "\\$readmemh" || str == "\\$readmemb")
@@ -1889,7 +1970,8 @@ skip_dynamic_range_lvalue_expansion:;
 					wire->port_id = 0;
 					wire->is_input = false;
 					wire->is_output = false;
-					wire->attributes["\\nosync"] = AstNode::mkconst_int(1, false);
+					if (!child->is_output)
+						wire->attributes["\\nosync"] = AstNode::mkconst_int(1, false);
 					wire_cache[child->str] = wire;
 
 					current_ast_mod->children.push_back(wire);
@@ -2569,6 +2651,23 @@ bool AstNode::mem2reg_check(pool<AstNode*> &mem2reg_set)
 	return true;
 }
 
+void AstNode::mem2reg_remove(pool<AstNode*> &mem2reg_set, vector<AstNode*> &delnodes)
+{
+	log_assert(mem2reg_set.count(this) == 0);
+
+	if (mem2reg_set.count(id2ast))
+		id2ast = nullptr;
+
+	for (size_t i = 0; i < children.size(); i++) {
+		if (mem2reg_set.count(children[i]) > 0) {
+			delnodes.push_back(children[i]);
+			children.erase(children.begin() + (i--));
+		} else {
+			children[i]->mem2reg_remove(mem2reg_set, delnodes);
+		}
+	}
+}
+
 // actually replace memories with registers
 bool AstNode::mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod, AstNode *block)
 {
@@ -2959,7 +3058,7 @@ AstNode *AstNode::eval_const_function(AstNode *fcall)
 			for (size_t i = 1; i < stmt->children.size(); i++)
 			{
 				bool found_match = false;
-				log_assert(stmt->children.at(i)->type == AST_COND);
+				log_assert(stmt->children.at(i)->type == AST_COND || stmt->children.at(i)->type == AST_CONDX || stmt->children.at(i)->type == AST_CONDZ);
 
 				if (stmt->children.at(i)->children.front()->type == AST_DEFAULT) {
 					sel_case = stmt->children.at(i)->children.back();

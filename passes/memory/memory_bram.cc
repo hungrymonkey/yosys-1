@@ -826,7 +826,7 @@ grow_read_ports:;
 					State padding = State::Sx;
 					for (int j = 0; j < bram.dbits; j++)
 						if (init_offset+i < GetSize(initdata) && init_shift+j < GetSize(initdata[init_offset+i]))
-							padding = initparam[i*bram.dbits+j] = initdata[init_offset+i][init_shift+j];
+							initparam[i*bram.dbits+j] = initdata[init_offset+i][init_shift+j];
 						else
 							initparam[i*bram.dbits+j] = padding;
 				}
@@ -1211,7 +1211,7 @@ struct MemoryBramPass : public Pass {
 	{
 		rules_t rules;
 
-		log_header("Executing MEMORY_BRAM pass (mapping $mem cells to block memories).\n");
+		log_header(design, "Executing MEMORY_BRAM pass (mapping $mem cells to block memories).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++) {

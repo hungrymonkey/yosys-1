@@ -181,10 +181,10 @@ struct SccWorker
 				cell2scc[cell] = sccList.size();
 				scc.insert(cell);
 				sccList.push_back(scc);
-				workQueue.erase(cell);
 				log("\n");
-			} else
-				run(cell, 0, maxDepth);
+			}
+
+			run(cell, 0, maxDepth);
 		}
 
 		log("Found %d SCCs in module %s.\n", int(sccList.size()), RTLIL::id2cstr(module->name));
@@ -264,7 +264,7 @@ struct SccPass : public Pass {
 		int maxDepth = -1;
 		int expect = -1;
 
-		log_header("Executing SCC pass (detecting logic loops).\n");
+		log_header(design, "Executing SCC pass (detecting logic loops).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++) {

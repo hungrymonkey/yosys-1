@@ -29,7 +29,7 @@ PRIVATE_NAMESPACE_BEGIN
 
 static string spice_id2str(IdString id)
 {
-	static const char *escape_chars = "$\\[]()<>";
+	static const char *escape_chars = "$\\[]()<>=";
 	string s = RTLIL::unescape_id(id);
 
 	for (auto &ch : s)
@@ -168,7 +168,7 @@ struct SpiceBackend : public Backend {
 		bool big_endian = false, use_inames = false;
 		std::string neg = "Vss", pos = "Vdd", ncpf = "_NC";
 
-		log_header("Executing SPICE backend.\n");
+		log_header(design, "Executing SPICE backend.\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -218,7 +218,7 @@ struct SpiceBackend : public Backend {
 			if (module->processes.size() != 0)
 				log_error("Found unmapped processes in module %s: unmapped processes are not supported in SPICE backend!\n", log_id(module));
 			if (module->memories.size() != 0)
-				log_error("Found munmapped emories in module %s: unmapped memories are not supported in SPICE backend!\n", log_id(module));
+				log_error("Found unmapped memories in module %s: unmapped memories are not supported in SPICE backend!\n", log_id(module));
 
 			if (module->name == RTLIL::escape_id(top_module_name)) {
 				top_module = module;
