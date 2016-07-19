@@ -8,4 +8,9 @@ $make install
 
 To generate netlist for triton code
 
+
 $yosys -p "synth_tritoncore -blif output.blif" input.v
+
+Links:
+https://github.com/JackDavidson/OpenFPGACore-TritonCore/tree/master/TritoncoreI
+https://github.com/Ailss/pnr
