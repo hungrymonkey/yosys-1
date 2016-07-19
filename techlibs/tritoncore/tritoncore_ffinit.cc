@@ -37,7 +37,7 @@ struct TritonCoreFfinitPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing TRITONCORE_FFINIT pass (implement FF init values).\n");
+		log_header(design ,"Executing TRITONCORE_FFINIT pass (implement FF init values).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)

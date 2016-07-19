@@ -25,18 +25,11 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
-bool check_label(bool &active, std::string run_from, std::string run_to, std::string label)
+struct SynthTritonCorePass : public ScriptPass
 {
-	if (label == run_from)
-		active = true;
-	if (label == run_to)
-		active = false;
-	return active;
-}
+	SynthTritonCorePass() : ScriptPass("synth_tritoncore", "synthesis for TRITONCORE FPGAs") { }
 
-struct SynthTritonCorePass : public Pass {
-	SynthTritonCorePass() : Pass("synth_tritoncore", "synthesis for TRITONCORE FPGAs") { }
-	virtual void help()
+	virtual void help() YS_OVERRIDE
 	{
 		//   |---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|---v---|
 		log("\n");
@@ -66,78 +59,33 @@ struct SynthTritonCorePass : public Pass {
 		log("    -retime\n");
 		log("        run 'abc' with -dff option\n");
 		log("\n");
-		log("    -nocarry\n");
-		log("        do not use SB_CARRY cells in output netlist\n");
-		log("\n");
 		log("    -abc2\n");
 		log("        run two passes of 'abc' for slightly improved logic density\n");
 		log("\n");
-		log("\n");
 		log("The following commands are executed by this synthesis command:\n");
-		log("\n");
-		log("    begin:\n");
-		log("        read_verilog -lib +/tritoncore/cells_sim.v\n");
-		log("        hierarchy -check -top <top>\n");
-		log("\n");
-		log("    flatten:         (unless -noflatten)\n");
-		log("        proc\n");
-		log("        flatten\n");
-		log("        tribuf -logic\n");
-		log("\n");
-		log("    coarse:\n");
-		log("        synth -run coarse\n");
-		log("\n");
-		log("    fine:\n");
-		log("        opt -fast -mux_undef -undriven -fine\n");
-		log("        memory_map\n");
-		log("        opt -undriven -fine\n");
-		log("        techmap -map +/techmap.v [-map +/tritoncore/arith_map.v]\n");
-		log("        abc -dff     (only if -retime)\n");
-		log("        tritoncore_opt\n");
-		log("\n");
-		log("    map_ffs:\n");
-		log("        dffsr2dff\n");
-		//log("        dff2dffe -direct-match $_DFF_*\n");
-		log("        dff2lut -direct-match $_DFF_*\n");
-		log("        techmap -map +/tritoncore/cells_map.v\n");
-		log("        opt_const -mux_undef\n");
-		log("        simplemap\n");
-		log("        tritoncore_ffinit\n");
-		log("        tritoncore_ffssr\n");
-		log("        tritoncore_opt -full\n");
-		log("\n");
-		log("    map_luts:\n");
-		log("        abc          (only if -abc2)\n");
-		log("        tritoncore_opt    (only if -abc2)\n");
-		log("        abc -lut 4\n");
-		log("        clean\n");
-		log("\n");
-		log("    map_cells:\n");
-		log("        techmap -map +/tritoncore/cells_map.v\n");
-		log("        clean\n");
-		log("\n");
-		log("    check:\n");
-		log("        hierarchy -check\n");
-		log("        stat\n");
-		log("        check -noinit\n");
-		log("\n");
-		log("    blif:\n");
-		log("        write_blif -gates -attr -param <file-name>\n");
-		log("\n");
-		log("    edif:\n");
-		log("        write_edif <file-name>\n");
+		help_script();
 		log("\n");
 	}
-	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
+
+	string top_opt, blif_file, edif_file;
+	bool nocarry, nobram, flatten, retime, abc2;
+
+	virtual void clear_flags() YS_OVERRIDE
 	{
-		std::string top_opt = "-auto-top";
-		std::string run_from, run_to;
-		std::string blif_file, edif_file;
-		bool nocarry = false;
-		bool nobram = false;
-		bool flatten = true;
-		bool retime = false;
-		bool abc2 = false;
+		top_opt = "-auto-top";
+		blif_file = "";
+		edif_file = "";
+		nocarry = false;
+		nobram = false;
+		flatten = true;
+		retime = false;
+		abc2 = false;
+	}
+
+	virtual void execute(std::vector<std::string> args, RTLIL::Design *design) YS_OVERRIDE
+	{
+		string run_from, run_to;
+		clear_flags();
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++)
@@ -174,14 +122,8 @@ struct SynthTritonCorePass : public Pass {
 				retime = true;
 				continue;
 			}
-			if (args[argidx] == "-nocarry") {
-				nocarry = true;
-				continue;
-			}
-			if (args[argidx] == "-nobram") {
-				nobram = true;
-				continue;
-			}
+
+
 			if (args[argidx] == "-abc2") {
 				abc2 = true;
 				continue;
@@ -193,94 +135,91 @@ struct SynthTritonCorePass : public Pass {
 		if (!design->full_selection())
 			log_cmd_error("This comannd only operates on fully selected designs!\n");
 
-		bool active = run_from.empty();
-
-		log_header("Executing SYNTH_TRITONCORE pass.\n");
+		log_header(design, "Executing SYNTH_TRITONCORE pass.\n");
 		log_push();
 
-		if (check_label(active, run_from, run_to, "begin"))
-		{
-			Pass::call(design, "read_verilog -lib +/tritoncore/cells_sim.v");
-			Pass::call(design, stringf("hierarchy -check %s", top_opt.c_str()));
-		}
-
-		if (flatten && check_label(active, run_from, run_to, "flatten"))
-		{
-			Pass::call(design, "proc");
-			Pass::call(design, "flatten");
-			Pass::call(design, "tribuf -logic");
-		}
-
-		if (check_label(active, run_from, run_to, "coarse"))
-		{
-			Pass::call(design, "synth -run coarse");
-		}
-
-
-
-		if (check_label(active, run_from, run_to, "fine"))
-		{
-			Pass::call(design, "opt -fast -mux_undef -undriven -fine");
-			Pass::call(design, "memory_map");
-			Pass::call(design, "opt -undriven -fine");
-			if (nocarry)
-				Pass::call(design, "techmap");
-			else
-				Pass::call(design, "techmap");
-			if (retime)
-				Pass::call(design, "abc -dff");
-		}
-
-		if (check_label(active, run_from, run_to, "map_ffs"))
-		{
-			Pass::call(design, "dffsr2dff");
-//			Pass::call(design, "dff2dffe -direct-match $_DFF_*");
-			Pass::call(design, "dff2lut -direct-match $_DFF_*");
-			Pass::call(design, "techmap -map +/tritoncore/cells_map.v");
-			Pass::call(design, "opt_const -mux_undef");
-			Pass::call(design, "simplemap");
-			Pass::call(design, "tritoncore_ffinit");
-			Pass::call(design, "tritoncore_ffssr");
-			Pass::call(design, "tritoncore_opt -full");
-		}
-
-
-		if (check_label(active, run_from, run_to, "map_luts"))
-		{
-			if (abc2) {
-				Pass::call(design, "abc");
-				Pass::call(design, "tritoncore_opt");
-			}
-			Pass::call(design, "abc -lut 4");
-			Pass::call(design, "clean");
-		}
-
-		if (check_label(active, run_from, run_to, "map_cells"))
-		{
-			Pass::call(design, "techmap -map +/tritoncore/cells_map.v");
-			Pass::call(design, "clean");
-		}
-
-		if (check_label(active, run_from, run_to, "check"))
-		{
-			Pass::call(design, "hierarchy -check");
-			Pass::call(design, "stat");
-			Pass::call(design, "check -noinit");
-		}
-
-		if (check_label(active, run_from, run_to, "blif"))
-		{
-			if (!blif_file.empty())
-				Pass::call(design, stringf("write_blif -gates -attr -param %s", blif_file.c_str()));
-		}
-
-		if (check_label(active, run_from, run_to, "edif"))
-		{
-			if (!edif_file.empty())
-				Pass::call(design, stringf("write_edif %s", edif_file.c_str()));
-		}
+		run_script(design, run_from, run_to);
 
 		log_pop();
+	}
+
+	virtual void script() YS_OVERRIDE
+	{
+		if (check_label("begin"))
+		{
+			run("read_verilog -lib +/tritoncore/cells_sim.v");
+			run(stringf("hierarchy -check %s", help_mode ? "-top <top>" : top_opt.c_str()));
+		}
+
+		if (flatten && check_label("flatten", "(unless -noflatten)"))
+		{
+			run("proc");
+			run("flatten");
+
+		}
+
+		if (check_label("coarse"))
+		{
+			run("synth -run coarse");
+		}
+
+		if (check_label("fine"))
+		{
+			run("opt -fast -mux_undef -undriven -fine");
+			run("memory_map");
+			run("opt -undriven -fine");
+            run("techmap");
+			if (retime || help_mode)
+				run("abc -dff", "(only if -retime)");
+			run("tritoncore_opt");
+		}
+
+		if (check_label("map_ffs"))
+		{
+			run("dffsr2dff");
+			run("dff2lut -direct-match $_DFF_*");
+			run("techmap -map +/tritoncore/cells_map.v");
+			run("opt_expr -mux_undef");
+			run("simplemap");
+			run("tritoncore_ffinit");
+			run("tritoncore_ffssr");
+			run("tritoncore_opt -full");
+		}
+
+		if (check_label("map_luts"))
+		{
+			if (abc2 || help_mode) {
+				run("abc", "      (only if -abc2)");
+				run("tritoncore_opt", "(only if -abc2)");
+			}
+			run("abc -lut 4");
+			run("clean");
+		}
+
+		if (check_label("map_cells"))
+		{
+			run("techmap -map +/tritoncore/cells_map.v");
+			run("clean");
+		}
+
+		if (check_label("check"))
+		{
+			run("hierarchy -check");
+			run("stat");
+			run("check -noinit");
+		}
+
+		if (check_label("blif"))
+		{
+			if (!blif_file.empty() || help_mode)
+				run(stringf("write_blif -gates -attr -param %s", help_mode ? "<file-name>" : blif_file.c_str()));
+		}
+
+		if (check_label("edif"))
+		{
+			if (!edif_file.empty() || help_mode)
+				run(stringf("write_edif %s", help_mode ? "<file-name>" : edif_file.c_str()));
+		}
 	}
 } SynthTritonCorePass;
 
