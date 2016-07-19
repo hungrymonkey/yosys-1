@@ -177,6 +177,7 @@ struct SynthTritonCorePass : public ScriptPass
 		if (check_label("map_ffs"))
 		{
 			run("dffsr2dff");
+   			run("dff2dffe -unmap");
 			run("dff2lut -direct-match $_DFF_*");
 			run("techmap -map +/tritoncore/cells_map.v");
 			run("opt_expr -mux_undef");
