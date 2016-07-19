@@ -128,7 +128,7 @@ struct Dff2lutPass : public Pass {
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
 	{
-		log_header("Executing Dff2lut pass (transform $dff to $lut where applicable).\n");
+		log_header(design, "Executing Dff2lut pass (transform $dff to $lut where applicable).\n");
 
 		bool unmap_mode = false;
 		dict<IdString, IdString> direct_dict;
