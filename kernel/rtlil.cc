@@ -1017,9 +1017,21 @@ namespace {
 				return;
 			}
 
-			if (cell->type.in("$assert", "$assume", "$expect")) {
+			if (cell->type.in("$assert", "$assume", "$predict")) {
 				port("\\A", 1);
 				port("\\EN", 1);
+				check_expected();
+				return;
+			}
+
+			if (cell->type == "$initstate") {
+				port("\\Y", 1);
+				check_expected();
+				return;
+			}
+
+			if (cell->type.in("$aconst", "$anyconst")) {
+				port("\\Y", param("\\WIDTH"));
 				check_expected();
 				return;
 			}
@@ -1798,7 +1810,7 @@ RTLIL::Cell* RTLIL::Module::addAssume(RTLIL::IdString name, RTLIL::SigSpec sig_a
 
 RTLIL::Cell* RTLIL::Module::addExpect(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en)
 {
-	RTLIL::Cell *cell = addCell(name, "$expect");
+	RTLIL::Cell *cell = addCell(name, "$predict");
 	cell->setPort("\\A", sig_a);
 	cell->setPort("\\EN", sig_en);
 	return cell;

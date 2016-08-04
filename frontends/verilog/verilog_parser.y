@@ -57,7 +57,7 @@ namespace VERILOG_FRONTEND {
 	std::vector<char> case_type_stack;
 	bool do_not_require_port_stubs;
 	bool default_nettype_wire;
-	bool sv_mode, formal_mode;
+	bool sv_mode, formal_mode, lib_mode;
 	std::istream *lexin;
 }
 YOSYS_NAMESPACE_END
@@ -113,7 +113,7 @@ static void free_attr(std::map<std::string, AstNode*> *al)
 %token TOK_SYNOPSYS_FULL_CASE TOK_SYNOPSYS_PARALLEL_CASE
 %token TOK_SUPPLY0 TOK_SUPPLY1 TOK_TO_SIGNED TOK_TO_UNSIGNED
 %token TOK_POS_INDEXED TOK_NEG_INDEXED TOK_ASSERT TOK_ASSUME
-%token TOK_EXPECT TOK_PROPERTY
+%token TOK_PREDICT TOK_PROPERTY
 
 %type <ast> range range_or_multirange  non_opt_range non_opt_multirange range_or_signed_int
 %type <ast> wire_type expr basic_expr concat_list rvalue lvalue lvalue_concat_list
@@ -872,10 +872,40 @@ cell_parameter:
 	};
 
 cell_port_list:
-	cell_port | cell_port_list ',' cell_port;
+	cell_port_list_rules {
+		// remove empty args from end of list
+		while (!astbuf2->children.empty()) {
+			AstNode *node = astbuf2->children.back();
+			if (node->type != AST_ARGUMENT) break;
+			if (!node->children.empty()) break;
+			if (!node->str.empty()) break;
+			astbuf2->children.pop_back();
+			delete node;
+		}
+
+		// check port types
+		bool has_positional_args = false;
+		bool has_named_args = false;
+		for (auto node : astbuf2->children) {
+			if (node->type != AST_ARGUMENT) continue;
+			if (node->str.empty())
+				has_positional_args = true;
+			else
+				has_named_args = true;
+		}
+
+		if (has_positional_args && has_named_args)
+			frontend_verilog_yyerror("Mix of positional and named cell ports.");
+	};
+
+cell_port_list_rules:
+	cell_port | cell_port_list_rules ',' cell_port;
 
 cell_port:
-	/* empty */ |
+	/* empty */ {
+		AstNode *node = new AstNode(AST_ARGUMENT);
+		astbuf2->children.push_back(node);
+	} |
 	expr {
 		AstNode *node = new AstNode(AST_ARGUMENT);
 		astbuf2->children.push_back(node);
@@ -967,8 +997,8 @@ assert:
 	TOK_ASSUME '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $3));
 	} |
-	TOK_EXPECT '(' expr ')' ';' {
-		ast_stack.back()->children.push_back(new AstNode(AST_EXPECT, $3));
+	TOK_PREDICT '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_PREDICT, $3));
 	};
 
 assert_property:
@@ -978,8 +1008,8 @@ assert_property:
 	TOK_ASSUME TOK_PROPERTY '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $4));
 	} |
-	TOK_EXPECT TOK_PROPERTY '(' expr ')' ';' {
-		ast_stack.back()->children.push_back(new AstNode(AST_EXPECT, $4));
+	TOK_PREDICT TOK_PROPERTY '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_PREDICT, $4));
 	};
 
 simple_behavioral_stmt:
@@ -1189,6 +1219,8 @@ rvalue:
 		$$ = new AstNode(AST_IDENTIFIER, $2);
 		$$->str = *$1;
 		delete $1;
+		if ($2 == nullptr && formal_mode && ($$->str == "\\$initstate" || $$->str == "\\$anyconst" || $$->str == "\\$aconst"))
+			$$->type = AST_FCALL;
 	} |
 	hierarchical_id non_opt_multirange {
 		$$ = new AstNode(AST_IDENTIFIER, $2);
@@ -1313,7 +1345,7 @@ basic_expr:
 		if ($4->substr(0, 1) != "'")
 			frontend_verilog_yyerror("Syntax error.");
 		AstNode *bits = $2;
-		AstNode *val = const2ast(*$4, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), true);
+		AstNode *val = const2ast(*$4, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), !lib_mode);
 		if (val == NULL)
 			log_error("Value conversion failed: `%s'\n", $4->c_str());
 		$$ = new AstNode(AST_TO_BITS, bits, val);
@@ -1324,7 +1356,7 @@ basic_expr:
 			frontend_verilog_yyerror("Syntax error.");
 		AstNode *bits = new AstNode(AST_IDENTIFIER);
 		bits->str = *$1;
-		AstNode *val = const2ast(*$2, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), true);
+		AstNode *val = const2ast(*$2, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), !lib_mode);
 		if (val == NULL)
 			log_error("Value conversion failed: `%s'\n", $2->c_str());
 		$$ = new AstNode(AST_TO_BITS, bits, val);
@@ -1332,14 +1364,14 @@ basic_expr:
 		delete $2;
 	} |
 	TOK_CONST TOK_CONST {
-		$$ = const2ast(*$1 + *$2, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), true);
+		$$ = const2ast(*$1 + *$2, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), !lib_mode);
 		if ($$ == NULL || (*$2)[0] != '\'')
 			log_error("Value conversion failed: `%s%s'\n", $1->c_str(), $2->c_str());
 		delete $1;
 		delete $2;
 	} |
 	TOK_CONST {
-		$$ = const2ast(*$1, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), true);
+		$$ = const2ast(*$1, case_type_stack.size() == 0 ? 0 : case_type_stack.back(), !lib_mode);
 		if ($$ == NULL)
 			log_error("Value conversion failed: `%s'\n", $1->c_str());
 		delete $1;

@@ -69,8 +69,8 @@ struct SatGen
 	SigPool initial_state;
 	std::map<std::string, RTLIL::SigSpec> asserts_a, asserts_en;
 	std::map<std::string, RTLIL::SigSpec> assumes_a, assumes_en;
-	std::map<std::string, RTLIL::SigSpec> expects_a, expects_en;
 	std::map<std::string, std::map<RTLIL::SigBit, int>> imported_signals;
+	std::map<std::pair<std::string, int>, bool> initstates;
 	bool ignore_div_by_zero;
 	bool model_undef;
 
@@ -265,6 +265,13 @@ struct SatGen
 	void undefGating(int y, int yy, int undef)
 	{
 		ez->assume(ez->OR(undef, ez->IFF(y, yy)));
+	}
+
+	void setInitState(int timestep)
+	{
+		auto key = make_pair(prefix, timestep);
+		log_assert(initstates.count(key) == 0 || initstates.at(key) == true);
+		initstates[key] = true;
 	}
 
 	bool importCell(RTLIL::Cell *cell, int timestep = -1)
@@ -1312,6 +1319,28 @@ struct SatGen
 			return true;
 		}
 
+		if (cell->type == "$anyconst")
+		{
+			if (timestep < 2)
+				return true;
+
+			std::vector<int> d = importDefSigSpec(cell->getPort("\\Y"), timestep-1);
+			std::vector<int> q = importDefSigSpec(cell->getPort("\\Y"), timestep);
+
+			std::vector<int> qq = model_undef ? ez->vec_var(q.size()) : q;
+			ez->assume(ez->vec_eq(d, qq));
+
+			if (model_undef)
+			{
+				std::vector<int> undef_d = importUndefSigSpec(cell->getPort("\\D"), timestep-1);
+				std::vector<int> undef_q = importUndefSigSpec(cell->getPort("\\Q"), timestep);
+
+				ez->assume(ez->vec_eq(undef_d, undef_q));
+				undefGating(q, qq, undef_q);
+			}
+			return true;
+		}
+
 		if (cell->type == "$_BUF_" || cell->type == "$equiv")
 		{
 			std::vector<int> a = importDefSigSpec(cell->getPort("\\A"), timestep);
@@ -1331,6 +1360,25 @@ struct SatGen
 			return true;
 		}
 
+		if (cell->type == "$initstate")
+		{
+			auto key = make_pair(prefix, timestep);
+			if (initstates.count(key) == 0)
+				initstates[key] = false;
+
+			std::vector<int> y = importDefSigSpec(cell->getPort("\\Y"), timestep);
+			log_assert(GetSize(y) == 1);
+			ez->SET(y[0], initstates[key] ? ez->CONST_TRUE : ez->CONST_FALSE);
+
+			if (model_undef) {
+				std::vector<int> undef_y = importUndefSigSpec(cell->getPort("\\Y"), timestep);
+				log_assert(GetSize(undef_y) == 1);
+				ez->SET(undef_y[0], ez->CONST_FALSE);
+			}
+
+			return true;
+		}
+
 		if (cell->type == "$assert")
 		{
 			std::string pf = prefix + (timestep == -1 ? "" : stringf("@%d:", timestep));
@@ -1344,14 +1392,6 @@ struct SatGen
 			std::string pf = prefix + (timestep == -1 ? "" : stringf("@%d:", timestep));
 			assumes_a[pf].append((*sigmap)(cell->getPort("\\A")));
 			assumes_en[pf].append((*sigmap)(cell->getPort("\\EN")));
-			return true;
-		}
-
-		if (cell->type == "$expect")
-		{
-			std::string pf = prefix + (timestep == -1 ? "" : stringf("@%d:", timestep));
-			expects_a[pf].append((*sigmap)(cell->getPort("\\A")));
-			expects_en[pf].append((*sigmap)(cell->getPort("\\EN")));
 			return true;
 		}
 

@@ -1305,17 +1305,50 @@ endmodule
 
 // --------------------------------------------------------
 
-module \$expect (A, EN);
+module \$predict (A, EN);
 
 input A, EN;
 
-`ifndef SIMLIB_NOCHECKS
-always @* begin
-	if (A === 1'b1 && EN === 1'b1) begin
-		$display("Expectation %m passed.");
-	end
+endmodule
+
+// --------------------------------------------------------
+
+module \$initstate (Y);
+
+output reg Y = 1;
+reg [3:0] cnt = 1;
+reg trig = 0;
+
+initial trig <= 1;
+
+always @(cnt, trig) begin
+	Y <= |cnt;
+	cnt <= cnt + |cnt;
 end
-`endif
+
+endmodule
+
+// --------------------------------------------------------
+
+module \$aconst (Y);
+
+parameter WIDTH = 0;
+
+output [WIDTH-1:0] Y;
+
+assign Y = 'bx;
+
+endmodule
+
+// --------------------------------------------------------
+
+module \$anyconst (Y);
+
+parameter WIDTH = 0;
+
+output [WIDTH-1:0] Y;
+
+assign Y = 'bx;
 
 endmodule
 

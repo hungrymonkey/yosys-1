@@ -1348,7 +1348,7 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 	}
 skip_dynamic_range_lvalue_expansion:;
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_EXPECT) && current_block != NULL)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_PREDICT) && current_block != NULL)
 	{
 		std::stringstream sstr;
 		sstr << "$formal$" << filename << ":" << linenum << "$" << (autoidx++);
@@ -1387,7 +1387,12 @@ skip_dynamic_range_lvalue_expansion:;
 		assign_check = new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), new AstNode(AST_REDUCE_BOOL, children[0]->clone()));
 		assign_check->children[0]->str = id_check;
 
-		assign_en = new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), mkconst_int(1, false, 1));
+		if (current_always == nullptr || current_always->type != AST_INITIAL) {
+			assign_en = new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), mkconst_int(1, false, 1));
+		} else {
+			assign_en = new AstNode(AST_ASSIGN_LE, new AstNode(AST_IDENTIFIER), new AstNode(AST_FCALL));
+			assign_en->children[1]->str = "\\$initstate";
+		}
 		assign_en->children[0]->str = id_en;
 
 		newNode = new AstNode(AST_BLOCK);
@@ -1405,7 +1410,7 @@ skip_dynamic_range_lvalue_expansion:;
 		goto apply_newNode;
 	}
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_EXPECT) && children.size() == 1)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_PREDICT) && children.size() == 1)
 	{
 		children.push_back(mkconst_int(1, false, 1));
 		did_something = true;
@@ -1626,6 +1631,34 @@ skip_dynamic_range_lvalue_expansion:;
 	{
 		if (type == AST_FCALL)
 		{
+			if (str == "\\$initstate")
+			{
+				int myidx = autoidx++;
+
+				AstNode *wire = new AstNode(AST_WIRE);
+				wire->str = stringf("$initstate$%d_wire", myidx);
+				current_ast_mod->children.push_back(wire);
+				while (wire->simplify(true, false, false, 1, -1, false, false)) { }
+
+				AstNode *cell = new AstNode(AST_CELL, new AstNode(AST_CELLTYPE), new AstNode(AST_ARGUMENT, new AstNode(AST_IDENTIFIER)));
+				cell->str = stringf("$initstate$%d", myidx);
+				cell->children[0]->str = "$initstate";
+				cell->children[1]->str = "\\Y";
+				cell->children[1]->children[0]->str = wire->str;
+				cell->children[1]->children[0]->id2ast = wire;
+				current_ast_mod->children.push_back(cell);
+				while (cell->simplify(true, false, false, 1, -1, false, false)) { }
+
+				newNode = new AstNode(AST_IDENTIFIER);
+				newNode->str = wire->str;
+				newNode->id2ast = wire;
+				goto apply_newNode;
+			}
+
+			// $anyconst and $aconst are mapped in AstNode::genRTLIL()
+			if (str == "\\$anyconst" || str == "\\$aconst")
+				return false;
+
 			if (str == "\\$clog2")
 			{
 				if (children.size() != 1)
