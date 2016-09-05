@@ -366,26 +366,15 @@ struct WreducePass : public Pass {
 		log("        assign y = a + b + c + 1;\n");
 		log("    endmodule\n");
 		log("\n");
-		log("Options:\n");
-		log("\n");
-		log("    -memx\n");
-		log("        Do not change the width of memory address ports. Use this options in\n");
-		log("        flows that use the 'memory_memx' pass.\n");
-		log("\n");
 	}
 	virtual void execute(std::vector<std::string> args, Design *design)
 	{
 		WreduceConfig config;
-		bool opt_memx = false;
 
 		log_header(design, "Executing WREDUCE pass (reducing word size of cells).\n");
 
 		size_t argidx;
 		for (argidx = 1; argidx < args.size(); argidx++) {
-			if (args[argidx] == "-memx") {
-				opt_memx = true;
-				continue;
-			}
 			break;
 		}
 		extra_args(args, argidx, design);
@@ -396,7 +385,6 @@ struct WreducePass : public Pass {
 				continue;
 
 			for (auto c : module->selected_cells())
-			{
 				if (c->type.in("$reduce_and", "$reduce_or", "$reduce_xor", "$reduce_xnor", "$reduce_bool",
 						"$lt", "$le", "$eq", "$ne", "$eqx", "$nex", "$ge", "$gt",
 						"$logic_not", "$logic_and", "$logic_or") && GetSize(c->getPort("\\Y")) > 1) {
@@ -408,23 +396,6 @@ struct WreducePass : public Pass {
 						module->connect(sig, Const(0, GetSize(sig)));
 					}
 				}
-				if (!opt_memx && c->type.in("$memrd", "$memwr", "$meminit")) {
-					IdString memid = c->getParam("\\MEMID").decode_string();
-					RTLIL::Memory *mem = module->memories.at(memid);
-					if (mem->start_offset >= 0) {
-						int cur_addrbits = c->getParam("\\ABITS").as_int();
-						int max_addrbits = ceil_log2(mem->start_offset + mem->size);
-						if (cur_addrbits > max_addrbits) {
-							log("Removed top %d address bits (of %d) from memory %s port %s.%s (%s).\n",
-									cur_addrbits-max_addrbits, cur_addrbits,
-									c->type == "$memrd" ? "read" : c->type == "$memwr" ? "write" : "init",
-									log_id(module), log_id(c), log_id(memid));
-							c->setParam("\\ABITS", max_addrbits);
-							c->setPort("\\ADDR", c->getPort("\\ADDR").extract(0, max_addrbits));
-						}
-					}
-				}
-			}
 
 			WreduceWorker worker(&config, module);
 			worker.run();

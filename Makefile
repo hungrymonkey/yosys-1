@@ -4,7 +4,6 @@ CONFIG := clang
 # CONFIG := gcc-4.8
 # CONFIG := emcc
 # CONFIG := mxe
-# CONFIG := msys2
 
 # features (the more the better)
 ENABLE_TCL := 1
@@ -72,7 +71,7 @@ else
 	LDLIBS += -lrt
 endif
 
-YOSYS_VER := 0.6+$(shell test -e .git && { git log --author=clifford@clifford.at --oneline 5869d26da021.. | wc -l; })
+YOSYS_VER := 0.6+$(shell test -d .git && { git log --author=clifford@clifford.at --oneline 5869d26da021.. | wc -l; })
 GIT_REV := $(shell cd $(YOSYS_SRC) && git rev-parse --short HEAD 2> /dev/null || echo UNKNOWN)
 OBJS = kernel/version_$(GIT_REV).o
 
@@ -82,9 +81,8 @@ OBJS = kernel/version_$(GIT_REV).o
 # is just a symlink to your actual ABC working directory, as 'make mrproper'
 # will remove the 'abc' directory and you do not want to accidentally
 # delete your work on ABC..
-ABCREV = a86455b00da5
+ABCREV = b5df6e2b76f0
 ABCPULL = 1
-ABCURL ?= https://bitbucket.org/alanmi/abc
 ABCMKARGS = CC="$(CXX)" CXX="$(CXX)"
 
 # set ABCEXTERNAL = <abc-command> to use an external ABC instance
@@ -170,23 +168,12 @@ CXXFLAGS += -std=c++11 -Os -D_POSIX_SOURCE
 CXXFLAGS := $(filter-out -fPIC,$(CXXFLAGS))
 LDFLAGS := $(filter-out -rdynamic,$(LDFLAGS)) -s
 LDLIBS := $(filter-out -lrt,$(LDLIBS))
-ABCMKARGS += ARCHFLAGS="-DSIZEOF_VOID_P=4 -DSIZEOF_LONG=4 -DSIZEOF_INT=4 -DWIN32_NO_DLL -DHAVE_STRUCT_TIMESPEC -x c++ -fpermissive -w"
+ABCMKARGS += ARCHFLAGS="-DSIZEOF_VOID_P=4 -DSIZEOF_LONG=4 -DSIZEOF_INT=4 -DWIN32_NO_DLL -x c++ -fpermissive -w"
 ABCMKARGS += LIBS="lib/x86/pthreadVC2.lib -s" ABC_USE_NO_READLINE=1 CC="$(CXX)" CXX="$(CXX)"
 EXE = .exe
 
-else ifeq ($(CONFIG),msys2)
-CXX = i686-w64-mingw32-gcc
-LD = i686-w64-mingw32-gcc
-CXXFLAGS += -std=c++11 -Os -D_POSIX_SOURCE -DYOSYS_WIN32_UNIX_DIR
-CXXFLAGS := $(filter-out -fPIC,$(CXXFLAGS))
-LDFLAGS := $(filter-out -rdynamic,$(LDFLAGS)) -s
-LDLIBS := $(filter-out -lrt,$(LDLIBS))
-ABCMKARGS += ARCHFLAGS="-DSIZEOF_VOID_P=4 -DSIZEOF_LONG=4 -DSIZEOF_INT=4 -DWIN32_NO_DLL -DHAVE_STRUCT_TIMESPEC -x c++ -fpermissive -w"
-ABCMKARGS += LIBS="lib/x86/pthreadVC2.lib -s" ABC_USE_NO_READLINE=0 CC="$(CXX)" CXX="$(CXX)"
-EXE = .exe
-
 else ifneq ($(CONFIG),none)
-$(error Invalid CONFIG setting '$(CONFIG)'. Valid values: clang, gcc, gcc-4.8, emcc, mxe, msys2)
+$(error Invalid CONFIG setting '$(CONFIG)'. Valid values: clang, gcc, gcc-4.8, emcc, none)
 endif
 
 ifeq ($(ENABLE_LIBYOSYS),1)
@@ -388,8 +375,8 @@ ifneq ($(ABCREV),default)
 	fi
 	$(Q) if test "`cd abc 2> /dev/null && hg identify | cut -f1 -d' '`" != "$(ABCREV)"; then \
 		test $(ABCPULL) -ne 0 || { echo 'REEBE: NOP abg hc gb qngr naq NOPCHYY frg gb 0 va Znxrsvyr!' | tr 'A-Za-z' 'N-ZA-Mn-za-m'; exit 1; }; \
-		echo "Pulling ABC from $(ABCURL):"; set -x; \
-		test -d abc || hg clone $(ABCURL) abc; \
+		echo "Pulling ABC from bitbucket.org:"; set -x; \
+		test -d abc || hg clone https://bitbucket.org/alanmi/abc abc; \
 		cd abc && $(MAKE) DEP= clean && hg pull && hg update -r $(ABCREV); \
 	fi
 endif
@@ -526,9 +513,6 @@ config-mxe: clean
 	echo 'ENABLE_TCL := 0' >> Makefile.conf
 	echo 'ENABLE_PLUGINS := 0' >> Makefile.conf
 	echo 'ENABLE_READLINE := 0' >> Makefile.conf
-
-config-msys2: clean
-	echo 'CONFIG := msys2' > Makefile.conf
 
 config-gprof: clean
 	echo 'CONFIG := gcc' > Makefile.conf

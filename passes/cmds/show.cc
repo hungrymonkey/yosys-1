@@ -582,9 +582,8 @@ struct ShowPass : public Pass {
 		log("        Run the specified command with the graphics file as parameter.\n");
 		log("\n");
 		log("    -format <format>\n");
-		log("        Generate a graphics file in the specified format. Use 'dot' to just\n");
-		log("        generate a .dot file, or other <format> strings such as 'svg' or 'ps'\n");
-		log("        to generate files in other formats (this calls the 'dot' command).\n");
+		log("        Generate a graphics file in the specified format.\n");
+		log("        Usually <format> is 'svg' or 'ps'.\n");
 		log("\n");
 		log("    -lib <verilog_or_ilang_file>\n");
 		log("        Use the specified library file for determining whether cell ports are\n");
@@ -647,8 +646,7 @@ struct ShowPass : public Pass {
 		log("unless another prefix is specified using -prefix <prefix>.\n");
 		log("\n");
 		log("Yosys on Windows and YosysJS use different defaults: The output is written\n");
-		log("to 'show.dot' in the current directory and new viewer is launched each time\n");
-		log("the 'show' command is executed.\n");
+		log("to 'show.dot' in the current directory and new viewer is launched.\n");
 		log("\n");
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design)
@@ -761,7 +759,7 @@ struct ShowPass : public Pass {
 		}
 		extra_args(args, argidx, design);
 
-		if (format != "ps" && format != "dot") {
+		if (format != "ps") {
 			int modcount = 0;
 			for (auto &mod_it : design->modules_) {
 				if (mod_it.second->get_bool_attribute("\\blackbox"))
@@ -772,7 +770,7 @@ struct ShowPass : public Pass {
 					modcount++;
 			}
 			if (modcount > 1)
-				log_cmd_error("For formats different than 'ps' or 'dot' only one module must be selected.\n");
+				log_cmd_error("For formats different than 'ps' only one module must be selected.\n");
 		}
 
 		for (auto filename : libfiles) {
@@ -808,7 +806,7 @@ struct ShowPass : public Pass {
 			log_cmd_error("Nothing there to show.\n");
 
 		if (format != "dot" && !format.empty()) {
-			std::string cmd = stringf("dot -T%s '%s' > '%s.new' && mv '%s.new' '%s'", format.c_str(), dot_file.c_str(), out_file.c_str(), out_file.c_str(), out_file.c_str());
+			std::string cmd = stringf("dot -T%s -o '%s.new' '%s' && mv '%s.new' '%s'", format.c_str(), out_file.c_str(), dot_file.c_str(), out_file.c_str(), out_file.c_str());
 			log("Exec: %s\n", cmd.c_str());
 			if (run_command(cmd) != 0)
 				log_cmd_error("Shell command failed!\n");

@@ -58,7 +58,6 @@ namespace VERILOG_FRONTEND {
 	bool do_not_require_port_stubs;
 	bool default_nettype_wire;
 	bool sv_mode, formal_mode, lib_mode;
-	bool norestrict_mode, assume_asserts_mode;
 	std::istream *lexin;
 }
 YOSYS_NAMESPACE_END
@@ -114,7 +113,7 @@ static void free_attr(std::map<std::string, AstNode*> *al)
 %token TOK_SYNOPSYS_FULL_CASE TOK_SYNOPSYS_PARALLEL_CASE
 %token TOK_SUPPLY0 TOK_SUPPLY1 TOK_TO_SIGNED TOK_TO_UNSIGNED
 %token TOK_POS_INDEXED TOK_NEG_INDEXED TOK_ASSERT TOK_ASSUME
-%token TOK_RESTRICT TOK_PROPERTY
+%token TOK_PREDICT TOK_PROPERTY
 
 %type <ast> range range_or_multirange  non_opt_range non_opt_multirange range_or_signed_int
 %type <ast> wire_type expr basic_expr concat_list rvalue lvalue lvalue_concat_list
@@ -135,9 +134,6 @@ static void free_attr(std::map<std::string, AstNode*> *al)
 %left '*' '/' '%'
 %left OP_POW
 %right UNARY_OPS
-
-%define parse.error verbose
-%define parse.lac full
 
 %expect 2
 %debug
@@ -996,30 +992,24 @@ opt_label:
 
 assert:
 	TOK_ASSERT '(' expr ')' ';' {
-		ast_stack.back()->children.push_back(new AstNode(assume_asserts_mode ? AST_ASSUME : AST_ASSERT, $3));
+		ast_stack.back()->children.push_back(new AstNode(AST_ASSERT, $3));
 	} |
 	TOK_ASSUME '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $3));
 	} |
-	TOK_RESTRICT '(' expr ')' ';' {
-		if (norestrict_mode)
-			delete $3;
-		else
-			ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $3));
+	TOK_PREDICT '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_PREDICT, $3));
 	};
 
 assert_property:
 	TOK_ASSERT TOK_PROPERTY '(' expr ')' ';' {
-		ast_stack.back()->children.push_back(new AstNode(assume_asserts_mode ? AST_ASSUME : AST_ASSERT, $4));
+		ast_stack.back()->children.push_back(new AstNode(AST_ASSERT, $4));
 	} |
 	TOK_ASSUME TOK_PROPERTY '(' expr ')' ';' {
 		ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $4));
 	} |
-	TOK_RESTRICT TOK_PROPERTY '(' expr ')' ';' {
-		if (norestrict_mode)
-			delete $4;
-		else
-			ast_stack.back()->children.push_back(new AstNode(AST_ASSUME, $4));
+	TOK_PREDICT TOK_PROPERTY '(' expr ')' ';' {
+		ast_stack.back()->children.push_back(new AstNode(AST_PREDICT, $4));
 	};
 
 simple_behavioral_stmt:
@@ -1229,7 +1219,7 @@ rvalue:
 		$$ = new AstNode(AST_IDENTIFIER, $2);
 		$$->str = *$1;
 		delete $1;
-		if ($2 == nullptr && formal_mode && ($$->str == "\\$initstate" || $$->str == "\\$anyconst"))
+		if ($2 == nullptr && formal_mode && ($$->str == "\\$initstate" || $$->str == "\\$anyconst" || $$->str == "\\$aconst"))
 			$$->type = AST_FCALL;
 	} |
 	hierarchical_id non_opt_multirange {

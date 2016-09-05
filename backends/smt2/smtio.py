@@ -17,35 +17,21 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #
 
-import sys, subprocess, re
+import sys
+import subprocess
 from select import select
 from time import time
 
-
-hex_dict = {
-    "0": "0000", "1": "0001", "2": "0010", "3": "0011",
-    "4": "0100", "5": "0101", "6": "0110", "7": "0111",
-    "8": "1000", "9": "1001", "A": "1010", "B": "1011",
-    "C": "1100", "D": "1101", "E": "1110", "F": "1111",
-    "a": "1010", "b": "1011", "c": "1100", "d": "1101",
-    "e": "1110", "f": "1111"
-}
-
-
-class SmtModInfo:
+class smtmodinfo:
     def __init__(self):
         self.inputs = set()
         self.outputs = set()
         self.registers = set()
-        self.memories = dict()
         self.wires = set()
         self.wsize = dict()
         self.cells = dict()
-        self.asserts = dict()
-        self.anyconsts = dict()
 
-
-class SmtIo:
+class smtio:
     def __init__(self, solver=None, debug_print=None, debug_file=None, timeinfo=None, opts=None):
         if opts is not None:
             self.solver = opts.solver
@@ -83,10 +69,6 @@ class SmtIo:
         if self.solver == "mathsat":
             popen_vargs = ['mathsat']
 
-        if self.solver == "boolector":
-            self.declared_sorts = list()
-            popen_vargs = ['boolector', '--smt2', '-i']
-
         self.p = subprocess.Popen(popen_vargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.start_time = time()
 
@@ -107,21 +89,11 @@ class SmtIo:
 
     def write(self, stmt):
         stmt = stmt.strip()
-
-        if self.solver == "boolector":
-            if stmt.startswith("(declare-sort"):
-                self.declared_sorts.append(stmt.split()[1])
-                return
-            for n in self.declared_sorts:
-                stmt = stmt.replace(n, "(_ BitVec 16)")
-
         if self.debug_print:
             print("> %s" % stmt)
-
         if self.debug_file:
             print(stmt, file=self.debug_file)
             self.debug_file.flush()
-
         self.p.stdin.write(bytes(stmt + "\n", "ascii"))
         self.p.stdin.flush()
 
@@ -133,7 +105,7 @@ class SmtIo:
 
         if fields[1] == "yosys-smt2-module":
             self.curmod = fields[2]
-            self.modinfo[self.curmod] = SmtModInfo()
+            self.modinfo[self.curmod] = smtmodinfo()
 
         if fields[1] == "yosys-smt2-cell":
             self.modinfo[self.curmod].cells[fields[3]] = fields[2]
@@ -153,41 +125,20 @@ class SmtIo:
             self.modinfo[self.curmod].registers.add(fields[2])
             self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
 
-        if fields[1] == "yosys-smt2-memory":
-            self.modinfo[self.curmod].memories[fields[2]] = (int(fields[3]), int(fields[4]), int(fields[5]))
-
         if fields[1] == "yosys-smt2-wire":
             self.modinfo[self.curmod].wires.add(fields[2])
             self.modinfo[self.curmod].wsize[fields[2]] = int(fields[3])
 
-        if fields[1] == "yosys-smt2-assert":
-            self.modinfo[self.curmod].asserts[fields[2]] = fields[3]
-
-        if fields[1] == "yosys-smt2-anyconst":
-            self.modinfo[self.curmod].anyconsts[fields[2]] = fields[3]
-
-    def hiernets(self, top, regs_only=False):
+    def hiernets(self, top):
         def hiernets_worker(nets, mod, cursor):
             for netname in sorted(self.modinfo[mod].wsize.keys()):
-                if not regs_only or netname in self.modinfo[mod].registers:
-                    nets.append(cursor + [netname])
+                nets.append(cursor + [netname])
             for cellname, celltype in sorted(self.modinfo[mod].cells.items()):
                 hiernets_worker(nets, celltype, cursor + [cellname])
 
         nets = list()
         hiernets_worker(nets, top, [])
         return nets
-
-    def hiermems(self, top):
-        def hiermems_worker(mems, mod, cursor):
-            for memname in sorted(self.modinfo[mod].memories.keys()):
-                mems.append(cursor + [memname])
-            for cellname, celltype in sorted(self.modinfo[mod].cells.items()):
-                hiermems_worker(mems, celltype, cursor + [cellname])
-
-        mems = list()
-        hiermems_worker(mems, top, [])
-        return mems
 
     def read(self):
         stmt = []
@@ -202,7 +153,7 @@ class SmtIo:
                 print("< %s" % line)
             if count_brackets == 0:
                 break
-            if self.p.poll():
+            if not self.p.poll():
                 print("SMT Solver terminated unexpectedly: %s" % "".join(stmt))
                 sys.exit(1)
 
@@ -299,7 +250,7 @@ class SmtIo:
 
     def bv2hex(self, v):
         h = ""
-        v = self.bv2bin(v)
+        v = bv2bin(v)
         while len(v) > 0:
             d = 0
             if len(v) > 0 and v[-1] == "1": d += 1
@@ -317,106 +268,65 @@ class SmtIo:
         if v.startswith("#b"):
             return v[2:]
         if v.startswith("#x"):
-            return "".join(hex_dict.get(x) for x in v[2:])
+            digits = []
+            for d in v[2:]:
+                if d == "0": digits.append("0000")
+                if d == "1": digits.append("0001")
+                if d == "2": digits.append("0010")
+                if d == "3": digits.append("0011")
+                if d == "4": digits.append("0100")
+                if d == "5": digits.append("0101")
+                if d == "6": digits.append("0110")
+                if d == "7": digits.append("0111")
+                if d == "8": digits.append("1000")
+                if d == "9": digits.append("1001")
+                if d in ("a", "A"): digits.append("1010")
+                if d in ("b", "B"): digits.append("1011")
+                if d in ("c", "C"): digits.append("1100")
+                if d in ("d", "D"): digits.append("1101")
+                if d in ("e", "E"): digits.append("1110")
+                if d in ("f", "F"): digits.append("1111")
+            return "".join(digits)
         assert False
-
-    def bv2int(self, v):
-        return int(self.bv2bin(v), 2)
 
     def get(self, expr):
         self.write("(get-value (%s))" % (expr))
         return self.parse(self.read())[0][1]
 
-    def get_list(self, expr_list):
-        if len(expr_list) == 0:
-            return []
-        self.write("(get-value (%s))" % " ".join(expr_list))
-        return [n[1] for n in self.parse(self.read())]
-
-    def get_path(self, mod, path):
-        assert mod in self.modinfo
-        path = path.split(".")
-
-        for i in range(len(path)-1):
-            first = ".".join(path[0:i+1])
-            second = ".".join(path[i+1:])
-
-            if first in self.modinfo[mod].cells:
-                nextmod = self.modinfo[mod].cells[first]
-                return [first] + self.get_path(nextmod, second)
-
-        return [".".join(path)]
-
-    def net_expr(self, mod, base, path):
-        if len(path) == 1:
-            assert mod in self.modinfo
-            if path[0] in self.modinfo[mod].wsize:
-                return "(|%s_n %s| %s)" % (mod, path[0], base)
-            if path[0] in self.modinfo[mod].memories:
-                return "(|%s_m %s| %s)" % (mod, path[0], base)
-            assert 0
-
-        assert mod in self.modinfo
-        assert path[0] in self.modinfo[mod].cells
-
-        nextmod = self.modinfo[mod].cells[path[0]]
-        nextbase = "(|%s_h %s| %s)" % (mod, path[0], base)
-        return self.net_expr(nextmod, nextbase, path[1:])
-
-    def net_width(self, mod, net_path):
-        for i in range(len(net_path)-1):
-            assert mod in self.modinfo
-            assert net_path[i] in self.modinfo[mod].cells
-            mod = self.modinfo[mod].cells[net_path[i]]
-
-        assert mod in self.modinfo
-        assert net_path[-1] in self.modinfo[mod].wsize
-        return self.modinfo[mod].wsize[net_path[-1]]
-
-    def mem_expr(self, mod, base, path, portidx=None, infomode=False):
-        if len(path) == 1:
-            assert mod in self.modinfo
-            assert path[0] in self.modinfo[mod].memories
-            if infomode:
-                return self.modinfo[mod].memories[path[0]]
-            return "(|%s_m%s %s| %s)" % (mod, "" if portidx is None else ":%d" % portidx, path[0], base)
-
-        assert mod in self.modinfo
-        assert path[0] in self.modinfo[mod].cells
-
-        nextmod = self.modinfo[mod].cells[path[0]]
-        nextbase = "(|%s_h %s| %s)" % (mod, path[0], base)
-        return self.mem_expr(nextmod, nextbase, path[1:], portidx=portidx, infomode=infomode)
-
-    def mem_info(self, mod, base, path):
-        return self.mem_expr(mod, base, path, infomode=True)
-
     def get_net(self, mod_name, net_path, state_name):
-        return self.get(self.net_expr(mod_name, state_name, net_path))
+        def mkexpr(mod, base, path):
+            if len(path) == 1:
+                assert mod in self.modinfo
+                assert path[0] in self.modinfo[mod].wsize
+                return "(|%s_n %s| %s)" % (mod, path[0], base)
 
-    def get_net_list(self, mod_name, net_path_list, state_name):
-        return self.get_list([self.net_expr(mod_name, state_name, n) for n in net_path_list])
+            assert mod in self.modinfo
+            assert path[0] in self.modinfo[mod].cells
+
+            nextmod = self.modinfo[mod].cells[path[0]]
+            nextbase = "(|%s_h %s| %s)" % (mod, path[0], base)
+            return mkexpr(nextmod, nextbase, path[1:])
+
+        return self.get(mkexpr(mod_name, state_name, net_path))
+
+    def get_net_bool(self, mod_name, net_path, state_name):
+        v = self.get_net(mod_name, net_path, state_name)
+        assert v in ["true", "false"]
+        return 1 if v == "true" else 0
 
     def get_net_hex(self, mod_name, net_path, state_name):
         return self.bv2hex(self.get_net(mod_name, net_path, state_name))
 
-    def get_net_hex_list(self, mod_name, net_path_list, state_name):
-        return [self.bv2hex(v) for v in self.get_net_list(mod_name, net_path_list, state_name)]
-
     def get_net_bin(self, mod_name, net_path, state_name):
         return self.bv2bin(self.get_net(mod_name, net_path, state_name))
-
-    def get_net_bin_list(self, mod_name, net_path_list, state_name):
-        return [self.bv2bin(v) for v in self.get_net_list(mod_name, net_path_list, state_name)]
 
     def wait(self):
         self.p.wait()
 
 
-class SmtOpts:
+class smtopts:
     def __init__(self):
-        self.shortopts = "s:v"
-        self.longopts = ["no-progress", "dump-smt2="]
+        self.optstr = "s:d:vp"
         self.solver = "z3"
         self.debug_print = False
         self.debug_file = None
@@ -427,9 +337,9 @@ class SmtOpts:
             self.solver = a
         elif o == "-v":
             self.debug_print = True
-        elif o == "--no-progress":
+        elif o == "-p":
             self.timeinfo = True
-        elif o == "--dump-smt2":
+        elif o == "-d":
             self.debug_file = open(a, "w")
         else:
             return False
@@ -444,15 +354,15 @@ class SmtOpts:
     -v
         enable debug output
 
-    --no-progress
-        disable running timer display during solving
+    -p
+        disable timer display during solving
 
-    --dump-smt2 <filename>
+    -d <filename>
         write smt2 statements to file
 """
 
 
-class MkVcd:
+class mkvcd:
     def __init__(self, f):
         self.f = f
         self.t = -1

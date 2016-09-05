@@ -1017,7 +1017,7 @@ namespace {
 				return;
 			}
 
-			if (cell->type.in("$assert", "$assume")) {
+			if (cell->type.in("$assert", "$assume", "$predict")) {
 				port("\\A", 1);
 				port("\\EN", 1);
 				check_expected();
@@ -1030,7 +1030,7 @@ namespace {
 				return;
 			}
 
-			if (cell->type == "$anyconst") {
+			if (cell->type.in("$aconst", "$anyconst")) {
 				port("\\Y", param("\\WIDTH"));
 				check_expected();
 				return;
@@ -1482,7 +1482,6 @@ void RTLIL::Module::connect(const RTLIL::SigSig &conn)
 		log_backtrace("-X- ", yosys_xtrace-1);
 	}
 
-	log_assert(GetSize(conn.first) == GetSize(conn.second));
 	connections_.push_back(conn);
 }
 
@@ -1804,6 +1803,14 @@ RTLIL::Cell* RTLIL::Module::addAssert(RTLIL::IdString name, RTLIL::SigSpec sig_a
 RTLIL::Cell* RTLIL::Module::addAssume(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en)
 {
 	RTLIL::Cell *cell = addCell(name, "$assume");
+	cell->setPort("\\A", sig_a);
+	cell->setPort("\\EN", sig_en);
+	return cell;
+}
+
+RTLIL::Cell* RTLIL::Module::addExpect(RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en)
+{
+	RTLIL::Cell *cell = addCell(name, "$predict");
 	cell->setPort("\\A", sig_a);
 	cell->setPort("\\EN", sig_en);
 	return cell;

@@ -313,7 +313,7 @@ bool set_keep_assert(std::map<RTLIL::Module*, bool> &cache, RTLIL::Module *mod)
 	if (cache.count(mod) == 0)
 		for (auto c : mod->cells()) {
 			RTLIL::Module *m = mod->design->module(c->type);
-			if ((m != nullptr && set_keep_assert(cache, m)) || c->type.in("$assert", "$assume"))
+			if ((m != nullptr && set_keep_assert(cache, m)) || c->type.in("$assert", "$assume", "$predict"))
 				return cache[mod] = true;
 		}
 	return cache[mod];
@@ -322,12 +322,10 @@ bool set_keep_assert(std::map<RTLIL::Module*, bool> &cache, RTLIL::Module *mod)
 int find_top_mod_score(Design *design, Module *module, dict<Module*, int> &db)
 {
 	if (db.count(module) == 0) {
-		int score = 0;
 		db[module] = 0;
 		for (auto cell : module->cells())
 			if (design->module(cell->type))
-				score = max(score, find_top_mod_score(design, design->module(cell->type), db) + 1);
-		db[module] = score;
+				db[module] = max(db[module], find_top_mod_score(design, design->module(cell->type), db) + 1);
 	}
 	return db.at(module);
 }
