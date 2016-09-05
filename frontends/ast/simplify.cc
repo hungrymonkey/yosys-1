@@ -148,7 +148,8 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 				}
 			}
 
-			while (mem2reg_as_needed_pass2(mem2reg_set, this, NULL)) { }
+			AstNode *async_block = NULL;
+			while (mem2reg_as_needed_pass2(mem2reg_set, this, NULL, async_block)) { }
 
 			vector<AstNode*> delnodes;
 			mem2reg_remove(mem2reg_set, delnodes);
@@ -882,11 +883,14 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 		int mem_width, mem_size, addr_bits;
 		id2ast->meminfo(mem_width, mem_size, addr_bits);
 
+		int data_range_left = id2ast->children[0]->range_left;
+		int data_range_right = id2ast->children[0]->range_right;
+
 		std::stringstream sstr;
-		sstr << "$mem2bits$" << children[0]->str << "$" << filename << ":" << linenum << "$" << (autoidx++);
+		sstr << "$mem2bits$" << str << "$" << filename << ":" << linenum << "$" << (autoidx++);
 		std::string wire_id = sstr.str();
 
-		AstNode *wire = new AstNode(AST_WIRE, new AstNode(AST_RANGE, mkconst_int(mem_width-1, true), mkconst_int(0, true)));
+		AstNode *wire = new AstNode(AST_WIRE, new AstNode(AST_RANGE, mkconst_int(data_range_left, true), mkconst_int(data_range_right, true)));
 		wire->str = wire_id;
 		if (current_block)
 			wire->attributes["\\nosync"] = AstNode::mkconst_int(1, false);
@@ -1348,7 +1352,7 @@ bool AstNode::simplify(bool const_fold, bool at_zero, bool in_lvalue, int stage,
 	}
 skip_dynamic_range_lvalue_expansion:;
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_PREDICT) && current_block != NULL)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME) && current_block != NULL)
 	{
 		std::stringstream sstr;
 		sstr << "$formal$" << filename << ":" << linenum << "$" << (autoidx++);
@@ -1410,7 +1414,7 @@ skip_dynamic_range_lvalue_expansion:;
 		goto apply_newNode;
 	}
 
-	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME || type == AST_PREDICT) && children.size() == 1)
+	if (stage > 1 && (type == AST_ASSERT || type == AST_ASSUME) && children.size() == 1)
 	{
 		children.push_back(mkconst_int(1, false, 1));
 		did_something = true;
@@ -1490,6 +1494,15 @@ skip_dynamic_range_lvalue_expansion:;
 		int mem_width, mem_size, addr_bits;
 		children[0]->id2ast->meminfo(mem_width, mem_size, addr_bits);
 
+		int data_range_left = children[0]->id2ast->children[0]->range_left;
+		int data_range_right = children[0]->id2ast->children[0]->range_right;
+		int mem_data_range_offset = std::min(data_range_left, data_range_right);
+
+		int addr_width_hint = -1;
+		bool addr_sign_hint = true;
+		children[0]->children[0]->children[0]->detectSignWidthWorker(addr_width_hint, addr_sign_hint);
+		addr_bits = std::max(addr_bits, addr_width_hint);
+
 		AstNode *wire_addr = new AstNode(AST_WIRE, new AstNode(AST_RANGE, mkconst_int(addr_bits-1, true), mkconst_int(0, true)));
 		wire_addr->str = id_addr;
 		current_ast_mod->children.push_back(wire_addr);
@@ -1547,6 +1560,7 @@ skip_dynamic_range_lvalue_expansion:;
 			{
 				int offset = children[0]->children[1]->range_right;
 				int width = children[0]->children[1]->range_left - offset + 1;
+				offset -= mem_data_range_offset;
 
 				std::vector<RTLIL::State> padding_x(offset, RTLIL::State::Sx);
 
@@ -1567,6 +1581,9 @@ skip_dynamic_range_lvalue_expansion:;
 				AstNode *left_at_zero_ast = the_range->children[0]->clone();
 				AstNode *right_at_zero_ast = the_range->children.size() >= 2 ? the_range->children[1]->clone() : left_at_zero_ast->clone();
 				AstNode *offset_ast = right_at_zero_ast->clone();
+
+				if (mem_data_range_offset)
+					offset_ast = new AstNode(AST_SUB, offset_ast, mkconst_int(mem_data_range_offset, true));
 
 				while (left_at_zero_ast->simplify(true, true, false, 1, -1, false, false)) { }
 				while (right_at_zero_ast->simplify(true, true, false, 1, -1, false, false)) { }
@@ -1655,8 +1672,8 @@ skip_dynamic_range_lvalue_expansion:;
 				goto apply_newNode;
 			}
 
-			// $anyconst and $aconst are mapped in AstNode::genRTLIL()
-			if (str == "\\$anyconst" || str == "\\$aconst")
+			// $anyconst is mapped in AstNode::genRTLIL()
+			if (str == "\\$anyconst")
 				return false;
 
 			if (str == "\\$clog2")
@@ -2463,12 +2480,12 @@ AstNode *AstNode::readmem(bool is_readmemh, std::string mem_filename, AstNode *m
 				block->children.back()->children[0]->id2ast = memory;
 			}
 
-			if ((cursor == finish_addr) || (increment > 0 && cursor > range_max) || (increment < 0 && cursor < range_min))
-				break;
 			cursor += increment;
+			if ((cursor == finish_addr+increment) || (increment > 0 && cursor > range_max) || (increment < 0 && cursor < range_min))
+				break;
 		}
 
-		if ((cursor == finish_addr) || (increment > 0 && cursor > range_max) || (increment < 0 && cursor < range_min))
+		if ((cursor == finish_addr+increment) || (increment > 0 && cursor > range_max) || (increment < 0 && cursor < range_min))
 			break;
 	}
 
@@ -2702,15 +2719,36 @@ void AstNode::mem2reg_remove(pool<AstNode*> &mem2reg_set, vector<AstNode*> &deln
 }
 
 // actually replace memories with registers
-bool AstNode::mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod, AstNode *block)
+bool AstNode::mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod, AstNode *block, AstNode *&async_block)
 {
 	bool did_something = false;
 
 	if (type == AST_BLOCK)
 		block = this;
 
-	if ((type == AST_ASSIGN_LE || type == AST_ASSIGN_EQ) && block != NULL &&
-			children[0]->mem2reg_check(mem2reg_set) && children[0]->children[0]->children[0]->type != AST_CONSTANT)
+	if (type == AST_FUNCTION || type == AST_TASK)
+		return false;
+
+	if (type == AST_ASSIGN && block == NULL && children[0]->mem2reg_check(mem2reg_set))
+	{
+		if (async_block == NULL) {
+			async_block = new AstNode(AST_ALWAYS, new AstNode(AST_BLOCK));
+			mod->children.push_back(async_block);
+		}
+
+		AstNode *newNode = clone();
+		newNode->type = AST_ASSIGN_EQ;
+		async_block->children[0]->children.push_back(newNode);
+
+		newNode = new AstNode(AST_NONE);
+		newNode->cloneInto(this);
+		delete newNode;
+
+		did_something = true;
+	}
+
+	if ((type == AST_ASSIGN_LE || type == AST_ASSIGN_EQ) && children[0]->mem2reg_check(mem2reg_set) &&
+			children[0]->children[0]->children[0]->type != AST_CONSTANT)
 	{
 		std::stringstream sstr;
 		sstr << "$mem2reg_wr$" << children[0]->str << "$" << filename << ":" << linenum << "$" << (autoidx++);
@@ -2786,7 +2824,7 @@ bool AstNode::mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod,
 		else
 		{
 			std::stringstream sstr;
-			sstr << "$mem2reg_rd$" << children[0]->str << "$" << filename << ":" << linenum << "$" << (autoidx++);
+			sstr << "$mem2reg_rd$" << str << "$" << filename << ":" << linenum << "$" << (autoidx++);
 			std::string id_addr = sstr.str() + "_ADDR", id_data = sstr.str() + "_DATA";
 
 			int mem_width, mem_size, addr_bits;
@@ -2866,7 +2904,7 @@ bool AstNode::mem2reg_as_needed_pass2(pool<AstNode*> &mem2reg_set, AstNode *mod,
 
 	auto children_list = children;
 	for (size_t i = 0; i < children_list.size(); i++)
-		if (children_list[i]->mem2reg_as_needed_pass2(mem2reg_set, mod, block))
+		if (children_list[i]->mem2reg_as_needed_pass2(mem2reg_set, mod, block, async_block))
 			did_something = true;
 
 	return did_something;

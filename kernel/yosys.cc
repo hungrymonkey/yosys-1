@@ -37,11 +37,13 @@
 #  include <unistd.h>
 #  include <dirent.h>
 #  include <sys/stat.h>
+#  include <glob.h>
 #else
 #  include <unistd.h>
 #  include <dirent.h>
 #  include <sys/types.h>
 #  include <sys/stat.h>
+#  include <glob.h>
 #endif
 
 #include <limits.h>
@@ -547,6 +549,29 @@ const char *create_prompt(RTLIL::Design *design, int recursion_counter)
 	return buffer;
 }
 
+std::vector<std::string> glob_filename(const std::string &filename_pattern)
+{
+	std::vector<std::string> results;
+
+#ifdef _WIN32
+	results.push_back(filename_pattern);
+#else
+	glob_t globbuf;
+
+	int err = glob(filename_pattern.c_str(), 0, NULL, &globbuf);
+
+	if(err == 0) {
+		for (size_t i = 0; i < globbuf.gl_pathc; i++)
+			results.push_back(globbuf.gl_pathv[i]);
+		globfree(&globbuf);
+	} else {
+		results.push_back(filename_pattern);
+	}
+#endif
+
+	return results;
+}
+
 void rewrite_filename(std::string &filename)
 {
 	if (filename.substr(0, 1) == "\"" && filename.substr(GetSize(filename)-1) == "\"")
@@ -622,7 +647,7 @@ struct TclPass : public Pass {
 } TclPass;
 #endif
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(__CYGWIN__)
 std::string proc_self_dirname()
 {
 	char path[PATH_MAX];
@@ -687,7 +712,7 @@ std::string proc_share_dirname()
 std::string proc_share_dirname()
 {
 	std::string proc_self_path = proc_self_dirname();
-#  ifdef _WIN32
+#  if defined(_WIN32) && !defined(YOSYS_WIN32_UNIX_DIR)
 	std::string proc_share_path = proc_self_path + "share\\";
 	if (check_file_exists(proc_share_path, true))
 		return proc_share_path;
@@ -1130,4 +1155,3 @@ struct ScriptCmdPass : public Pass {
 } ScriptCmdPass;
 
 YOSYS_NAMESPACE_END
-

@@ -208,7 +208,7 @@ void logv_error(const char *format, va_list ap)
 	log_files = backup_log_files;
 	throw 0;
 #else
-	exit(1);
+	_Exit(1);
 #endif
 }
 
@@ -410,6 +410,24 @@ const char *log_signal(const RTLIL::SigSpec &sig, bool autoint)
 		if (++string_buf_index == 100)
 			string_buf_index = 0;
 		string_buf[string_buf_index] = buf.str();
+		return string_buf[string_buf_index].c_str();
+	}
+}
+
+const char *log_const(const RTLIL::Const &value, bool autoint)
+{
+	if ((value.flags & RTLIL::CONST_FLAG_STRING) == 0)
+		return log_signal(value, autoint);
+
+	std::string str = "\"" + value.decode_string() + "\"";
+
+	if (string_buf.size() < 100) {
+		string_buf.push_back(str);
+		return string_buf.back().c_str();
+	} else {
+		if (++string_buf_index == 100)
+			string_buf_index = 0;
+		string_buf[string_buf_index] = str;
 		return string_buf[string_buf_index].c_str();
 	}
 }

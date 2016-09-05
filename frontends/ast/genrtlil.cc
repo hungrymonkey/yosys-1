@@ -241,6 +241,8 @@ struct AST_INTERNAL::ProcessGenerator
 				RTLIL::SyncRule *syncrule = new RTLIL::SyncRule;
 				syncrule->type = child->type == AST_POSEDGE ? RTLIL::STp : RTLIL::STn;
 				syncrule->signal = child->children[0]->genRTLIL();
+				if (GetSize(syncrule->signal) != 1)
+					log_error("Found posedge/negedge event on a signal that is not 1 bit wide at %s:%d!\n", always->filename.c_str(), always->linenum);
 				addChunkActions(syncrule->actions, subst_lvalue_from, subst_lvalue_to, true);
 				proc->syncs.push_back(syncrule);
 			}
@@ -538,6 +540,7 @@ struct AST_INTERNAL::ProcessGenerator
 			log_error("Found parameter declaration in block without label at at %s:%d!\n", ast->filename.c_str(), ast->linenum);
 			break;
 
+		case AST_NONE:
 		case AST_TCALL:
 		case AST_FOR:
 			break;
@@ -751,7 +754,7 @@ void AstNode::detectSignWidthWorker(int &width_hint, bool &sign_hint, bool *foun
 		break;
 
 	case AST_FCALL:
-		if (str == "\\$anyconst" || str == "\\$aconst") {
+		if (str == "\\$anyconst") {
 			if (GetSize(children) == 1) {
 				while (children[0]->simplify(true, false, false, 1, -1, false, true) == true) { }
 				if (children[0]->type != AST_CONSTANT)
@@ -808,6 +811,7 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 	// simply ignore this nodes.
 	// they are either leftovers from simplify() or are referenced by other nodes
 	// and are only accessed here thru this references
+	case AST_NONE:
 	case AST_TASK:
 	case AST_FUNCTION:
 	case AST_DPI_FUNCTION:
@@ -1251,13 +1255,15 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 			int mem_width, mem_size, addr_bits;
 			id2ast->meminfo(mem_width, mem_size, addr_bits);
 
+			RTLIL::SigSpec addr_sig = children[0]->genRTLIL();
+
 			cell->setPort("\\CLK", RTLIL::SigSpec(RTLIL::State::Sx, 1));
 			cell->setPort("\\EN", RTLIL::SigSpec(RTLIL::State::Sx, 1));
-			cell->setPort("\\ADDR", children[0]->genWidthRTLIL(addr_bits));
+			cell->setPort("\\ADDR", addr_sig);
 			cell->setPort("\\DATA", RTLIL::SigSpec(wire));
 
 			cell->parameters["\\MEMID"] = RTLIL::Const(str);
-			cell->parameters["\\ABITS"] = RTLIL::Const(addr_bits);
+			cell->parameters["\\ABITS"] = RTLIL::Const(GetSize(addr_sig));
 			cell->parameters["\\WIDTH"] = RTLIL::Const(wire->width);
 
 			cell->parameters["\\CLK_ENABLE"] = RTLIL::Const(0);
@@ -1288,11 +1294,13 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 				cell->parameters["\\WORDS"] = RTLIL::Const(num_words);
 			}
 
-			cell->setPort("\\ADDR", children[0]->genWidthRTLIL(addr_bits));
+			SigSpec addr_sig = children[0]->genRTLIL();
+
+			cell->setPort("\\ADDR", addr_sig);
 			cell->setPort("\\DATA", children[1]->genWidthRTLIL(current_module->memories[str]->width * num_words));
 
 			cell->parameters["\\MEMID"] = RTLIL::Const(str);
-			cell->parameters["\\ABITS"] = RTLIL::Const(addr_bits);
+			cell->parameters["\\ABITS"] = RTLIL::Const(GetSize(addr_sig));
 			cell->parameters["\\WIDTH"] = RTLIL::Const(current_module->memories[str]->width);
 
 			if (type == AST_MEMWR) {
@@ -1309,11 +1317,9 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 	// generate $assert cells
 	case AST_ASSERT:
 	case AST_ASSUME:
-	case AST_PREDICT:
 		{
 			const char *celltype = "$assert";
 			if (type == AST_ASSUME) celltype = "$assume";
-			if (type == AST_PREDICT) celltype = "$predict";
 
 			log_assert(children.size() == 2);
 
@@ -1441,9 +1447,9 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 		} break;
 
 	case AST_FCALL: {
-			if (str == "\\$anyconst" || str == "\\$aconst")
+			if (str == "\\$anyconst")
 			{
-				string myid = stringf("%s$%d", RTLIL::unescape_id(str).c_str(), autoidx++);
+				string myid = stringf("%s$%d", str.c_str() + 1, autoidx++);
 				int width = width_hint;
 
 				if (GetSize(children) > 1)
@@ -1462,9 +1468,11 @@ RTLIL::SigSpec AstNode::genRTLIL(int width_hint, bool sign_hint)
 							RTLIL::unescape_id(str).c_str(), filename.c_str(), linenum);
 
 				Cell *cell = current_module->addCell(myid, str.substr(1));
+				cell->attributes["\\src"] = stringf("%s:%d", filename.c_str(), linenum);
 				cell->parameters["\\WIDTH"] = width;
 
 				Wire *wire = current_module->addWire(myid + "_wire", width);
+				wire->attributes["\\src"] = stringf("%s:%d", filename.c_str(), linenum);
 				cell->setPort("\\Y", wire);
 
 				is_signed = sign_hint;
