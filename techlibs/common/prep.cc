@@ -53,8 +53,18 @@ struct PrepPass : public ScriptPass
 		log("        passed to 'proc'. uses verilog simulation behavior for verilog if/case\n");
 		log("        undef handling. this also prevents 'wreduce' from being run.\n");
 		log("\n");
+		log("    -memx\n");
+		log("        simulate verilog simulation behavior for out-of-bounds memory accesses\n");
+		log("        using the 'memory_memx' pass. This option implies -nordff.\n");
+		log("\n");
+		log("    -nomem\n");
+		log("        do not run any of the memory_* passes\n");
+		log("\n");
 		log("    -nordff\n");
 		log("        passed to 'memory_dff'. prohibits merging of FFs into memory read ports\n");
+		log("\n");
+		log("     -nokeepdc\n");
+		log("        do not call opt_* with -keepdc\n");
 		log("\n");
 		log("    -run <from_label>[:<to_label>]\n");
 		log("        only run the commands between the labels (see below). an empty\n");
@@ -68,7 +78,7 @@ struct PrepPass : public ScriptPass
 	}
 
 	string top_module, fsm_opts, memory_opts;
-	bool autotop, flatten, ifxmode;
+	bool autotop, flatten, ifxmode, memxmode, nomemmode, nokeepdc;
 
 	virtual void clear_flags() YS_OVERRIDE
 	{
@@ -78,6 +88,9 @@ struct PrepPass : public ScriptPass
 		autotop = false;
 		flatten = false;
 		ifxmode = false;
+		memxmode = false;
+		nomemmode = false;
+		nokeepdc = false;
 	}
 
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design) YS_OVERRIDE
@@ -114,8 +127,21 @@ struct PrepPass : public ScriptPass
 				ifxmode = true;
 				continue;
 			}
+			if (args[argidx] == "-memx") {
+				memxmode = true;
+				memory_opts += " -nordff";
+				continue;
+			}
+			if (args[argidx] == "-nomem") {
+				nomemmode = true;
+				continue;
+			}
 			if (args[argidx] == "-nordff") {
 				memory_opts += " -nordff";
+				continue;
+			}
+			if (args[argidx] == "-nokeepdc") {
+				nokeepdc = true;
 				continue;
 			}
 			break;
@@ -153,19 +179,30 @@ struct PrepPass : public ScriptPass
 
 		if (check_label("coarse"))
 		{
-			run(ifxmode ? "proc -ifx" : "proc");
+			if (help_mode)
+				run("proc [-ifx]");
+			else
+				run(ifxmode ? "proc -ifx" : "proc");
 			if (help_mode || flatten)
 				run("flatten", "(if -flatten)");
-			run("opt_expr -keepdc");
+			run(nokeepdc ? "opt_expr" : "opt_expr -keepdc");
 			run("opt_clean");
 			run("check");
-			run("opt -keepdc");
-			if (!ifxmode)
-				run("wreduce");
-			run("memory_dff" + (help_mode ? " [-nordff]" : memory_opts));
-			run("opt_clean");
-			run("memory_collect");
-			run("opt -keepdc -fast");
+			run(nokeepdc ? "opt" : "opt -keepdc");
+			if (!ifxmode) {
+				if (help_mode)
+					run("wreduce [-memx]");
+				else
+					run(memxmode ? "wreduce -memx" : "wreduce");
+			}
+			if (!nomemmode) {
+				run("memory_dff" + (help_mode ? " [-nordff]" : memory_opts));
+				if (help_mode || memxmode)
+					run("memory_memx", "(if -memx)");
+				run("opt_clean");
+				run("memory_collect");
+			}
+			run(nokeepdc ? "opt -fast" : "opt -keepdc -fast");
 		}
 
 		if (check_label("check"))

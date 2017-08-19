@@ -619,6 +619,12 @@ struct MemoryShareWorker
 
 			RTLIL::SigBit this_en_active = module->ReduceOr(NEW_ID, this_en);
 
+			if (GetSize(last_addr) < GetSize(this_addr))
+				last_addr.extend_u0(GetSize(this_addr));
+			else
+				this_addr.extend_u0(GetSize(last_addr));
+
+			wr_ports[i]->setParam("\\ABITS", GetSize(this_addr));
 			wr_ports[i]->setPort("\\ADDR", module->Mux(NEW_ID, last_addr, this_addr, this_en_active));
 			wr_ports[i]->setPort("\\DATA", module->Mux(NEW_ID, last_data, this_data, this_en_active));
 
@@ -747,7 +753,7 @@ struct MemorySharePass : public Pass {
 		log("\n");
 	}
 	virtual void execute(std::vector<std::string> args, RTLIL::Design *design) {
-		log_header(design, "Executing MEMORY_SHARE pass (consolidating $memrc/$memwr cells).\n");
+		log_header(design, "Executing MEMORY_SHARE pass (consolidating $memrd/$memwr cells).\n");
 		extra_args(args, 1, design);
 		for (auto module : design->selected_modules())
 			MemoryShareWorker(design, module);

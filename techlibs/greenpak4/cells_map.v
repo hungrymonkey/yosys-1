@@ -24,6 +24,84 @@ module GP_DFFR(input D, CLK, nRST, output reg Q);
 	);
 endmodule
 
+module GP_DFFSI(input D, CLK, nSET, output reg nQ);
+	parameter [0:0] INIT = 1'bx;
+	GP_DFFSRI #(
+		.INIT(INIT),
+		.SRMODE(1'b1),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.CLK(CLK),
+		.nSR(nSET),
+		.nQ(nQ)
+	);
+endmodule
+
+module GP_DFFRI(input D, CLK, nRST, output reg nQ);
+	parameter [0:0] INIT = 1'bx;
+	GP_DFFSRI #(
+		.INIT(INIT),
+		.SRMODE(1'b0),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.CLK(CLK),
+		.nSR(nRST),
+		.nQ(nQ)
+	);
+endmodule
+
+module GP_DLATCHS(input D, nCLK, nSET, output reg Q);
+	parameter [0:0] INIT = 1'bx;
+	GP_DLATCHSR #(
+		.INIT(INIT),
+		.SRMODE(1'b1),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.nCLK(nCLK),
+		.nSR(nSET),
+		.Q(Q)
+	);
+endmodule
+
+module GP_DLATCHR(input D, nCLK, nRST, output reg Q);
+	parameter [0:0] INIT = 1'bx;
+	GP_DLATCHSR #(
+		.INIT(INIT),
+		.SRMODE(1'b0),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.nCLK(nCLK),
+		.nSR(nRST),
+		.Q(Q)
+	);
+endmodule
+
+module GP_DLATCHSI(input D, nCLK, nSET, output reg nQ);
+	parameter [0:0] INIT = 1'bx;
+	GP_DLATCHSRI #(
+		.INIT(INIT),
+		.SRMODE(1'b1),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.nCLK(nCLK),
+		.nSR(nSET),
+		.nQ(nQ)
+	);
+endmodule
+
+module GP_DLATCHRI(input D, nCLK, nRST, output reg nQ);
+	parameter [0:0] INIT = 1'bx;
+	GP_DLATCHSRI #(
+		.INIT(INIT),
+		.SRMODE(1'b0),
+	) _TECHMAP_REPLACE_ (
+		.D(D),
+		.nCLK(nCLK),
+		.nSR(nRST),
+		.nQ(nQ)
+	);
+endmodule
+
 module GP_OBUFT(input IN, input OE, output OUT);
 	GP_IOBUF _TECHMAP_REPLACE_ (
 		.IN(IN),

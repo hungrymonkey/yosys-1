@@ -42,7 +42,8 @@ namespace RTLIL
 		STn = 3, // edge sensitive: negedge
 		STe = 4, // edge sensitive: both edges
 		STa = 5, // always active
-		STi = 6  // init
+		STg = 6, // global clock
+		STi = 7  // init
 	};
 
 	enum ConstFlags : unsigned char {
@@ -478,6 +479,10 @@ struct RTLIL::Const
 	inline RTLIL::State &operator[](int index) { return bits.at(index); }
 	inline const RTLIL::State &operator[](int index) const { return bits.at(index); }
 
+	bool is_fully_zero() const;
+	bool is_fully_def() const;
+	bool is_fully_undef() const;
+
 	inline RTLIL::Const extract(int offset, int len = 1, RTLIL::State padding = RTLIL::State::S0) const {
 		RTLIL::Const ret;
 		ret.bits.reserve(len);
@@ -792,7 +797,8 @@ struct RTLIL::Design
 
 	int refcount_modules_;
 	dict<RTLIL::IdString, RTLIL::Module*> modules_;
-	std::vector<AST::AstNode*> verilog_packages;
+	std::vector<AST::AstNode*> verilog_packages, verilog_globals;
+	dict<std::string, std::pair<std::string, bool>> verilog_defines;
 
 	std::vector<RTLIL::Selection> selection_stack;
 	dict<RTLIL::IdString, RTLIL::Selection> selection_vars;
@@ -909,7 +915,7 @@ public:
 	std::vector<RTLIL::IdString> ports;
 	void fixup_ports();
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 	void cloneInto(RTLIL::Module *new_mod) const;
 	virtual RTLIL::Module *clone() const;
 
@@ -1005,10 +1011,13 @@ public:
 	RTLIL::Cell* addTribuf (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en, RTLIL::SigSpec sig_y);
 	RTLIL::Cell* addAssert (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
 	RTLIL::Cell* addAssume (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
-	RTLIL::Cell* addExpect (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
+	RTLIL::Cell* addLive   (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
+	RTLIL::Cell* addFair   (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
+	RTLIL::Cell* addCover  (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_en);
 	RTLIL::Cell* addEquiv  (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_b, RTLIL::SigSpec sig_y);
 
 	RTLIL::Cell* addSr    (RTLIL::IdString name, RTLIL::SigSpec sig_set, RTLIL::SigSpec sig_clr, RTLIL::SigSpec sig_q, bool set_polarity = true, bool clr_polarity = true);
+	RTLIL::Cell* addFf    (RTLIL::IdString name, RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q);
 	RTLIL::Cell* addDff   (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_d,   RTLIL::SigSpec sig_q, bool clk_polarity = true);
 	RTLIL::Cell* addDffe  (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_en,  RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q, bool clk_polarity = true, bool en_polarity = true);
 	RTLIL::Cell* addDffsr (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_set, RTLIL::SigSpec sig_clr,
@@ -1019,20 +1028,23 @@ public:
 	RTLIL::Cell* addDlatchsr (RTLIL::IdString name, RTLIL::SigSpec sig_en, RTLIL::SigSpec sig_set, RTLIL::SigSpec sig_clr,
 			RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q, bool en_polarity = true, bool set_polarity = true, bool clr_polarity = true);
 
-	RTLIL::Cell* addBufGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addNotGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addAndGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addNandGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addOrGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addNorGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addXorGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addXnorGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addMuxGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_s, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addAoi3Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addOai3Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addAoi4Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d, RTLIL::SigBit sig_y);
-	RTLIL::Cell* addOai4Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addBufGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addNotGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addAndGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addNandGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addOrGate     (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addNorGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addXorGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addXnorGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addAndnotGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addOrnotGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addMuxGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_s, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addAoi3Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addOai3Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addAoi4Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d, RTLIL::SigBit sig_y);
+	RTLIL::Cell* addOai4Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d, RTLIL::SigBit sig_y);
 
+	RTLIL::Cell* addFfGate     (RTLIL::IdString name, RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q);
 	RTLIL::Cell* addDffGate    (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q, bool clk_polarity = true);
 	RTLIL::Cell* addDffeGate   (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_en, RTLIL::SigSpec sig_d, RTLIL::SigSpec sig_q, bool clk_polarity = true, bool en_polarity = true);
 	RTLIL::Cell* addDffsrGate  (RTLIL::IdString name, RTLIL::SigSpec sig_clk, RTLIL::SigSpec sig_set, RTLIL::SigSpec sig_clr,
@@ -1091,19 +1103,25 @@ public:
 	RTLIL::SigSpec Mux      (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_b, RTLIL::SigSpec sig_s);
 	RTLIL::SigSpec Pmux     (RTLIL::IdString name, RTLIL::SigSpec sig_a, RTLIL::SigSpec sig_b, RTLIL::SigSpec sig_s);
 
-	RTLIL::SigBit BufGate  (RTLIL::IdString name, RTLIL::SigBit sig_a);
-	RTLIL::SigBit NotGate  (RTLIL::IdString name, RTLIL::SigBit sig_a);
-	RTLIL::SigBit AndGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit NandGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit OrGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit NorGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit XorGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit XnorGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
-	RTLIL::SigBit MuxGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_s);
-	RTLIL::SigBit Aoi3Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c);
-	RTLIL::SigBit Oai3Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c);
-	RTLIL::SigBit Aoi4Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d);
-	RTLIL::SigBit Oai4Gate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d);
+	RTLIL::SigBit BufGate    (RTLIL::IdString name, RTLIL::SigBit sig_a);
+	RTLIL::SigBit NotGate    (RTLIL::IdString name, RTLIL::SigBit sig_a);
+	RTLIL::SigBit AndGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit NandGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit OrGate     (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit NorGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit XorGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit XnorGate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit AndnotGate (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit OrnotGate  (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b);
+	RTLIL::SigBit MuxGate    (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_s);
+	RTLIL::SigBit Aoi3Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c);
+	RTLIL::SigBit Oai3Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c);
+	RTLIL::SigBit Aoi4Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d);
+	RTLIL::SigBit Oai4Gate   (RTLIL::IdString name, RTLIL::SigBit sig_a, RTLIL::SigBit sig_b, RTLIL::SigBit sig_c, RTLIL::SigBit sig_d);
+
+	RTLIL::SigSpec Anyconst  (RTLIL::IdString name, int width = 1);
+	RTLIL::SigSpec Anyseq    (RTLIL::IdString name, int width = 1);
+	RTLIL::SigSpec Initstate (RTLIL::IdString name);
 };
 
 struct RTLIL::Wire : public RTLIL::AttrObject
@@ -1187,7 +1205,7 @@ public:
 				module->design->module(type)->get_bool_attribute("\\keep"));
 	}
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 };
 
 struct RTLIL::CaseRule
@@ -1199,7 +1217,7 @@ struct RTLIL::CaseRule
 	~CaseRule();
 	void optimize();
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 	RTLIL::CaseRule *clone() const;
 };
 
@@ -1210,7 +1228,7 @@ struct RTLIL::SwitchRule : public RTLIL::AttrObject
 
 	~SwitchRule();
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 	RTLIL::SwitchRule *clone() const;
 };
 
@@ -1220,7 +1238,7 @@ struct RTLIL::SyncRule
 	RTLIL::SigSpec signal;
 	std::vector<RTLIL::SigSig> actions;
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 	RTLIL::SyncRule *clone() const;
 };
 
@@ -1232,7 +1250,7 @@ struct RTLIL::Process : public RTLIL::AttrObject
 
 	~Process();
 
-	template<typename T> void rewrite_sigspecs(T functor);
+	template<typename T> void rewrite_sigspecs(T &functor);
 	RTLIL::Process *clone() const;
 };
 
@@ -1281,7 +1299,7 @@ inline RTLIL::SigBit::SigBit(const RTLIL::SigSpec &sig) {
 }
 
 template<typename T>
-void RTLIL::Module::rewrite_sigspecs(T functor)
+void RTLIL::Module::rewrite_sigspecs(T &functor)
 {
 	for (auto &it : cells_)
 		it.second->rewrite_sigspecs(functor);
@@ -1294,13 +1312,13 @@ void RTLIL::Module::rewrite_sigspecs(T functor)
 }
 
 template<typename T>
-void RTLIL::Cell::rewrite_sigspecs(T functor) {
+void RTLIL::Cell::rewrite_sigspecs(T &functor) {
 	for (auto &it : connections_)
 		functor(it.second);
 }
 
 template<typename T>
-void RTLIL::CaseRule::rewrite_sigspecs(T functor) {
+void RTLIL::CaseRule::rewrite_sigspecs(T &functor) {
 	for (auto &it : compare)
 		functor(it);
 	for (auto &it : actions) {
@@ -1312,7 +1330,7 @@ void RTLIL::CaseRule::rewrite_sigspecs(T functor) {
 }
 
 template<typename T>
-void RTLIL::SwitchRule::rewrite_sigspecs(T functor)
+void RTLIL::SwitchRule::rewrite_sigspecs(T &functor)
 {
 	functor(signal);
 	for (auto it : cases)
@@ -1320,7 +1338,7 @@ void RTLIL::SwitchRule::rewrite_sigspecs(T functor)
 }
 
 template<typename T>
-void RTLIL::SyncRule::rewrite_sigspecs(T functor)
+void RTLIL::SyncRule::rewrite_sigspecs(T &functor)
 {
 	functor(signal);
 	for (auto &it : actions) {
@@ -1330,7 +1348,7 @@ void RTLIL::SyncRule::rewrite_sigspecs(T functor)
 }
 
 template<typename T>
-void RTLIL::Process::rewrite_sigspecs(T functor)
+void RTLIL::Process::rewrite_sigspecs(T &functor)
 {
 	root_case.rewrite_sigspecs(functor);
 	for (auto it : syncs)

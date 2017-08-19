@@ -155,6 +155,7 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 			f << stringf("\t%s <= #%d 0;\n", it->first.c_str(), ++delay_counter*2);
 		for (auto it = signal_clk.begin(); it != signal_clk.end(); ++it)
 			f << stringf("\t%s <= #%d 0;\n", it->first.c_str(), ++delay_counter*2);
+		f << stringf("\t#%d;\n", ((2*delay_counter+99)/100)*100);
 		for (auto it = signal_clk.begin(); it != signal_clk.end(); ++it) {
 			f << stringf("\t#100; %s <= 1;\n", it->first.c_str());
 			f << stringf("\t#100; %s <= 0;\n", it->first.c_str());
@@ -162,6 +163,7 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 		delay_counter = 0;
 		for (auto it = signal_in.begin(); it != signal_in.end(); ++it)
 			f << stringf("\t%s <= #%d ~0;\n", it->first.c_str(), ++delay_counter*2);
+		f << stringf("\t#%d;\n", ((2*delay_counter+99)/100)*100);
 		for (auto it = signal_clk.begin(); it != signal_clk.end(); ++it) {
 			f << stringf("\t#100; %s <= 1;\n", it->first.c_str());
 			f << stringf("\t#100; %s <= 0;\n", it->first.c_str());
@@ -172,6 +174,7 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 				continue;
 			f << stringf("\t%s <= #%d 'b%s;\n", it->first.c_str(), ++delay_counter*2, signal_const[it->first].c_str());
 		}
+		f << stringf("\t#%d;\n", ((2*delay_counter+99)/100)*100);
 		f << stringf("end\n");
 		f << stringf("endtask\n\n");
 
@@ -184,6 +187,7 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 			f << stringf("\txorshift128;\n");
 			f << stringf("\t%s <= #%d { xorshift128_x, xorshift128_y, xorshift128_z, xorshift128_w };\n", it->first.c_str(), ++delay_counter*2);
 		}
+		f << stringf("\t#%d;\n", ((2*delay_counter+99)/100)*100);
 		f << stringf("end\n");
 		f << stringf("endtask\n\n");
 
@@ -216,59 +220,65 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 			for (auto it = signal_in.begin(); it != signal_in.end(); it++) {
 				f << stringf("%s %s", it == signal_in.begin() ? "" : ",", it->first.c_str());
 				int len = it->second;
+				header2 += ", \"";
 				if (len > 1)
 					header2 += "/", len--;
 				while (len > 1)
 					header2 += "-", len--;
 				if (len > 0)
 					header2 += shorthand, len--;
+				header2 += "\"";
 				header1.push_back("    " + it->first);
 				header1.back()[0] = shorthand;
 				shorthand = shorthand == 'Z' ? 'A' : shorthand+1;
 			}
 		else {
 			f << stringf(" 1'bx");
-			header2 += "#";
+			header2 += ", \"#\"";
 		}
 		f << stringf(" }, {");
-		header2 += " ";
+		header2 += ", \" \"";
 		if (signal_clk.size()) {
 			for (auto it = signal_clk.begin(); it != signal_clk.end(); it++) {
 				f << stringf("%s %s", it == signal_clk.begin() ? "" : ",", it->first.c_str());
 				int len = it->second;
+				header2 += ", \"";
 				if (len > 1)
 					header2 += "/", len--;
 				while (len > 1)
 					header2 += "-", len--;
 				if (len > 0)
 					header2 += shorthand, len--;
+				header2 += "\"";
 				header1.push_back("    " + it->first);
 				header1.back()[0] = shorthand;
 				shorthand = shorthand == 'Z' ? 'A' : shorthand+1;
 			}
 		} else {
 			f << stringf(" 1'bx");
-			header2 += "#";
+			header2 += ", \"#\"";
 		}
 		f << stringf(" }, {");
-		header2 += " ";
+		header2 += ", \" \"";
 		if (signal_out.size()) {
 			for (auto it = signal_out.begin(); it != signal_out.end(); it++) {
 				f << stringf("%s %s", it == signal_out.begin() ? "" : ",", it->first.c_str());
 				int len = it->second;
+				header2 += ", \"";
 				if (len > 1)
 					header2 += "/", len--;
 				while (len > 1)
 					header2 += "-", len--;
 				if (len > 0)
 					header2 += shorthand, len--;
+				header2 += "\"";
 				header1.push_back("    " + it->first);
 				header1.back()[0] = shorthand;
 				shorthand = shorthand == 'Z' ? 'A' : shorthand+1;
 			}
 		} else {
 			f << stringf(" 1'bx");
-			header2 += "#";
+			header2 += ", \"#\"";
 		}
 		f << stringf(" }, $time, i);\n");
 		f << stringf("end\n");
@@ -280,7 +290,7 @@ static void autotest(std::ostream &f, RTLIL::Design *design, int num_iter, int s
 		for (auto &hdr : header1)
 			f << stringf("\t$fdisplay(file, \"#OUT#   %s\");\n", hdr.c_str());
 		f << stringf("\t$fdisplay(file, \"#OUT#\");\n");
-		f << stringf("\t$fdisplay(file, \"#OUT# %s\");\n", header2.c_str());
+		f << stringf("\t$fdisplay(file, {\"#OUT# \"%s});\n", header2.c_str());
 		f << stringf("end\n");
 		f << stringf("endtask\n\n");
 

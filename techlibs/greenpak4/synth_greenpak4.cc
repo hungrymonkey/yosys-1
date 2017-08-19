@@ -36,6 +36,8 @@ struct SynthGreenPAK4Pass : public ScriptPass
 		log("    synth_greenpak4 [options]\n");
 		log("\n");
 		log("This command runs synthesis for GreenPAK4 FPGAs. This work is experimental.\n");
+		log("It is intended to be used with https://github.com/azonenberg/openfpga as the\n");
+		log("place-and-route.\n");
 		log("\n");
 		log("    -top <module>\n");
 		log("        use the specified module as top module (default='top')\n");
@@ -159,6 +161,7 @@ struct SynthGreenPAK4Pass : public ScriptPass
 			run("memory_map");
 			run("opt -undriven -fine");
 			run("techmap");
+			run("techmap -map +/greenpak4/cells_latch.v");
 			run("dfflibmap -prepare -liberty +/greenpak4/gp_dff.lib");
 			run("opt -fast");
 			if (retime || help_mode)
@@ -182,7 +185,10 @@ struct SynthGreenPAK4Pass : public ScriptPass
 			run("dffinit -ff GP_DFFS Q INIT");
 			run("dffinit -ff GP_DFFSR Q INIT");
 			run("iopadmap -bits -inpad GP_IBUF OUT:IN -outpad GP_OBUF IN:OUT -inoutpad GP_OBUF OUT:IN -toutpad GP_OBUFT OE:IN:OUT -tinoutpad GP_IOBUF OE:OUT:IN:IO");
+			run("attrmvcp -attr src -attr LOC t:GP_OBUF t:GP_OBUFT t:GP_IOBUF n:*");
+			run("attrmvcp -attr src -attr LOC -driven t:GP_IBUF n:*");
 			run("techmap -map +/greenpak4/cells_map.v");
+			run("greenpak4_dffinv");
 			run("clean");
 		}
 
@@ -198,8 +204,6 @@ struct SynthGreenPAK4Pass : public ScriptPass
 			if (!json_file.empty() || help_mode)
 				run(stringf("write_json %s", help_mode ? "<file-name>" : json_file.c_str()));
 		}
-
-		log_pop();
 	}
 } SynthGreenPAK4Pass;
 
